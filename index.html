@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Lay out designs on a DTF film sheet with exact sizes in centimetres, then export a print-ready PDF or PNG. Runs in your browser; your images never leave your computer."
+    />
+    <title>PrintSheet</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232F5D50'/%3E%3Crect x='8' y='5' width='16' height='22' rx='1.5' fill='%23fff'/%3E%3Crect x='11' y='9' width='10' height='6' fill='%230094C6'/%3E%3Crect x='11' y='17' width='6' height='6' fill='%23D6338A'/%3E%3C/svg%3E"
+    />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="topbar">
+        <div class="brand">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="6" fill="currentColor" />
+            <rect x="8" y="5" width="16" height="22" rx="1.5" fill="#fff" />
+            <rect x="11" y="9" width="10" height="6" fill="#0094C6" />
+            <rect x="11" y="17" width="6" height="6" fill="#D6338A" />
+          </svg>
+          <span>PrintSheet</span>
+        </div>
+        <div class="file-actions" role="group" aria-label="Project">
+          <button class="btn btn-quiet" id="new-sheet" type="button" title="Start an empty sheet">
+            New
+          </button>
+          <button
+            class="btn btn-quiet"
+            id="open-project"
+            type="button"
+            title="Open a .printsheet project file"
+          >
+            Open
+          </button>
+          <button
+            class="btn btn-quiet"
+            id="save-project"
+            type="button"
+            title="Save the sheet and its images as one .printsheet file (Ctrl+S)"
+          >
+            Save
+          </button>
+          <input id="project-input" type="file" accept=".printsheet" hidden />
+        </div>
+        <div class="toolbar" role="toolbar" aria-label="Editor">
+          <button class="btn btn-primary-soft" id="add-images" type="button" data-icon="add">
+            Add images
+          </button>
+          <input
+            id="file-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            hidden
+          />
+          <span class="sep" aria-hidden="true"></span>
+          <button
+            class="icon-btn"
+            id="undo"
+            type="button"
+            data-icon="undo"
+            aria-label="Undo"
+            title="Undo (Ctrl+Z)"
+          ></button>
+          <button
+            class="icon-btn"
+            id="redo"
+            type="button"
+            data-icon="redo"
+            aria-label="Redo"
+            title="Redo (Ctrl+Shift+Z)"
+          ></button>
+          <span class="sep" aria-hidden="true"></span>
+          <button
+            class="icon-btn"
+            id="zoom-out"
+            type="button"
+            data-icon="minus"
+            aria-label="Zoom out"
+            title="Zoom out (Ctrl+−)"
+          ></button>
+          <button class="zoom-value" id="zoom-value" type="button" title="Set zoom to 100%">
+            100%
+          </button>
+          <button
+            class="icon-btn"
+            id="zoom-in"
+            type="button"
+            data-icon="plus"
+            aria-label="Zoom in"
+            title="Zoom in (Ctrl+=)"
+          ></button>
+          <button
+            class="btn btn-quiet"
+            id="zoom-fit"
+            type="button"
+            title="Fit the sheet width to the window"
+          >
+            Fit width
+          </button>
+          <span class="sep" aria-hidden="true"></span>
+          <div class="bg-picker" role="radiogroup" aria-label="Workspace background">
+            <button
+              class="swatch swatch-checker"
+              type="button"
+              role="radio"
+              data-bg="transparent"
+              title="Transparent (checkerboard)"
+              aria-label="Transparent"
+            ></button>
+            <button
+              class="swatch swatch-white"
+              type="button"
+              role="radio"
+              data-bg="white"
+              title="White"
+              aria-label="White"
+            ></button>
+            <button
+              class="swatch swatch-black"
+              type="button"
+              role="radio"
+              data-bg="black"
+              title="Black"
+              aria-label="Black"
+            ></button>
+            <label class="swatch swatch-custom" title="Custom colour">
+              <input
+                type="color"
+                id="bg-custom"
+                aria-label="Custom background colour"
+                value="#e8d7c3"
+              />
+            </label>
+          </div>
+          <button
+            class="icon-btn toggle"
+            id="grid-toggle"
+            type="button"
+            data-icon="grid"
+            aria-pressed="false"
+            aria-label="Show grid"
+            title="Show a 1 cm grid on the sheet"
+          ></button>
+        </div>
+        <div class="topbar-end">
+          <button
+            class="btn btn-quiet"
+            id="arrange"
+            type="button"
+            data-icon="arrange"
+            title="Pack designs to use less film"
+          >
+            Arrange
+          </button>
+          <button class="btn btn-primary" id="export" type="button" data-icon="export">
+            Export
+          </button>
+        </div>
+      </header>
+
+      <aside class="panel panel-left" aria-label="Sheet and designs">
+        <section class="film" aria-live="polite">
+          <div class="film-length"><span id="film-meters">0.00</span><small>m of film</small></div>
+          <div class="film-size" id="film-size">58.0 cm wide</div>
+          <div class="film-counts" id="film-counts">No designs yet</div>
+        </section>
+
+        <section class="group" aria-labelledby="sheet-heading">
+          <h2 id="sheet-heading">Sheet</h2>
+          <label class="field">
+            <span>Width preset</span>
+            <div class="row">
+              <select id="preset"></select>
+              <button
+                class="icon-btn small"
+                id="preset-menu"
+                type="button"
+                data-icon="more"
+                aria-label="Manage presets"
+                title="Save, rename or delete presets"
+              ></button>
+            </div>
+          </label>
+          <div class="grid-2">
+            <label class="field"
+              ><span>Width (cm)</span
+              ><input
+                id="sheet-width"
+                type="number"
+                inputmode="decimal"
+                step="0.1"
+                min="10"
+                max="160"
+            /></label>
+            <label class="field"
+              ><span>Cutting gap (mm)</span
+              ><input id="gap" type="number" inputmode="decimal" step="0.5" min="0" max="100"
+            /></label>
+          </div>
+          <div class="field">
+            <span id="length-label">Length</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="length-label">
+              <button
+                type="button"
+                role="radio"
+                data-length="auto"
+                title="The sheet gets longer as you add designs"
+              >
+                Grows
+              </button>
+              <button
+                type="button"
+                role="radio"
+                data-length="fixed"
+                title="A set length, for buying an exact amount of film"
+              >
+                Fixed
+              </button>
+            </div>
+          </div>
+          <label class="field" id="fixed-length-field" hidden
+            ><span>Fixed length (cm)</span
+            ><input id="fixed-length" type="number" inputmode="decimal" step="1" min="1" max="500"
+          /></label>
+        </section>
+
+        <section class="group designs" aria-labelledby="designs-heading">
+          <div class="group-head">
+            <h2 id="designs-heading">Designs</h2>
+            <span class="count" id="design-count">0</span>
+          </div>
+          <ul
+            class="design-list"
+            id="design-list"
+            role="listbox"
+            aria-label="Designs on the sheet"
+            aria-multiselectable="true"
+          ></ul>
+        </section>
+      </aside>
+
+      <main class="stage" aria-label="Sheet">
+        <canvas class="ruler ruler-top" id="ruler-top" aria-hidden="true"></canvas>
+        <canvas class="ruler ruler-left" id="ruler-left" aria-hidden="true"></canvas>
+        <div class="ruler-corner" aria-hidden="true">cm</div>
+        <div class="scroller" id="scroller" tabindex="-1">
+          <div class="viewport" id="viewport"><canvas id="sheet-canvas"></canvas></div>
+          <div class="spacer" id="spacer"></div>
+        </div>
+        <div class="empty" id="empty-state">
+          <p class="empty-title">Drop your designs here</p>
+          <p>
+            PNG files with a transparent background print best. You can also paste an image with
+            Ctrl+V.
+          </p>
+          <button class="btn btn-primary" id="empty-add" type="button" data-icon="add">
+            Add images
+          </button>
+        </div>
+        <div class="drop-overlay" id="drop-overlay" hidden><p>Drop to add to the sheet</p></div>
+      </main>
+
+      <aside class="panel panel-right" id="inspector" aria-label="Selected design"></aside>
+
+      <footer class="statusbar">
+        <span id="save-status" role="status">Not saved yet</span>
+        <span id="busy" class="busy" hidden></span>
+        <span class="status-end" id="selection-status"></span>
+        <button class="link-btn" id="about" type="button">About</button>
+      </footer>
+    </div>
+
+    <div class="banner" id="tab-banner" role="alert" hidden>
+      PrintSheet is also open in another tab. Both tabs save to the same place, so the last one you
+      change wins. Close the other tab to be safe.
+      <button class="btn btn-quiet" id="tab-banner-close" type="button">Dismiss</button>
+    </div>
+    <div class="toasts" id="toasts" aria-live="assertive"></div>
+    <dialog class="dialog" id="export-dialog" aria-labelledby="export-title"></dialog>
+    <dialog class="dialog" id="preset-dialog" aria-labelledby="preset-title"></dialog>
+    <dialog class="dialog" id="confirm-dialog"></dialog>
+    <dialog class="dialog" id="about-dialog" aria-labelledby="about-title"></dialog>
+  </body>
+</html>

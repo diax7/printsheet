@@ -1,0 +1,46 @@
+{
+  "name": "printsheet",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lay out transparent designs on a DTF film sheet and export a print-ready PDF or PNG.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings src tests",
+    "e2e": "npm run build && npm run fixtures && playwright test",
+    "fixtures": "node --experimental-strip-types tests/fixtures/make-fixtures.ts",
+    "format": "oxfmt src tests index.html vite.config.ts playwright.config.ts",
+    "format:check": "oxfmt --check src tests index.html vite.config.ts playwright.config.ts",
+    "serve": "node scripts/serve.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "fabric": "^7.4.0",
+    "idb-keyval": "^6.3.0",
+    "jscolorengine": "^1.7.1",
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.19.2",
+    "fast-png": "^8.0.0",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
+    "pdfjs-dist": "^6.5.438",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-singlefile": "^2.3.4",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/diax7/printsheet.git"
+  },
+  "homepage": "https://printsheet.dhia.app"
+}

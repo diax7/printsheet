@@ -1,0 +1,9 @@
+node_modules/
+dist/
+spike/
+.superpowers/
+.vercel/
+test-results/
+playwright-report/
+*.log
+tests/fixtures/out/

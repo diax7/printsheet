@@ -1,0 +1,198 @@
+import { describe, expect, it } from 'vitest';
+import { parseProject, serializeProject, PROJECT_MAGIC } from '@/store/project-file';
+import { DEFAULT_SETTINGS, type Design, type ImageAsset, type Sheet } from '@/model/types';
+
+function asset(id: string, bytes: number[]): ImageAsset {
+  return {
+    id,
+    name: `${id} <b>name</b>.png`,
+    blob: new Blob([new Uint8Array(bytes)], { type: 'image/png' }),
+    widthPx: 120,
+    heightPx: 80,
+    hasTransparency: id !== 'a2',
+  };
+}
+
+const designs: Design[] = [
+  {
+    id: 'd1',
+    assetId: 'a1',
+    name: 'Logo',
+    xMm: 10.5,
+    yMm: 20.25,
+    widthMm: 30,
+    heightMm: 20,
+    angleDeg: 30,
+    flipX: true,
+    flipY: false,
+    locked: true,
+  },
+  {
+    id: 'd2',
+    assetId: 'a2',
+    name: 'Back print',
+    xMm: 200,
+    yMm: 300,
+    widthMm: 250,
+    heightMm: 300,
+    angleDeg: 0,
+    flipX: false,
+    flipY: true,
+    locked: false,
+  },
+  {
+    id: 'd3',
+    assetId: 'a1',
+    name: 'Logo copy',
+    xMm: 50,
+    yMm: 20,
+    widthMm: 30,
+    heightMm: 20,
+    angleDeg: 0,
+    flipX: false,
+    flipY: false,
+    locked: false,
+  },
+];
+
+const sheet: Sheet = {
+  designs,
+  settings: {
+    ...DEFAULT_SETTINGS,
+    sheetWidthMm: 600,
+    lengthMode: 'fixed',
+    fixedLengthMm: 1500,
+    gapMm: 3,
+  },
+};
+const assets = new Map([
+  ['a1', asset('a1', [1, 2, 3, 4, 5])],
+  ['a2', asset('a2', [9, 8, 7])],
+]);
+
+async function bytesOf(blob: Blob): Promise<number[]> {
+  return Array.from(new Uint8Array(await blob.arrayBuffer()));
+}
+
+/** Rebuild a file from a header object, so tests can tamper with it. */
+async function withHeader(
+  file: Blob,
+  edit: (header: Record<string, unknown>) => void,
+): Promise<Blob> {
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const view = new DataView(buffer.buffer);
+  const headerLength = view.getUint32(8);
+  const header = JSON.parse(
+    new TextDecoder().decode(buffer.subarray(12, 12 + headerLength)),
+  ) as Record<string, unknown>;
+  edit(header);
+  const json = new TextEncoder().encode(JSON.stringify(header));
+  const length = new Uint8Array(4);
+  new DataView(length.buffer).setUint32(0, json.length);
+  return new Blob([buffer.subarray(0, 8), length, json, buffer.subarray(12 + headerLength)]);
+}
+
+describe('project file', () => {
+  it('reopens exactly what was saved', async () => {
+    const file = await serializeProject(sheet, assets);
+    const opened = await parseProject(file);
+    expect(opened.sheet).toEqual(sheet);
+    expect(opened.dropped).toBe(0);
+    expect([...opened.assets.keys()]).toEqual(['a1', 'a2']);
+    for (const [id, original] of assets) {
+      const copy = opened.assets.get(id);
+      expect(copy?.name).toBe(original.name);
+      expect(copy?.widthPx).toBe(120);
+      expect(copy?.hasTransparency).toBe(original.hasTransparency);
+      expect(copy?.blob.type).toBe('image/png');
+      expect(await bytesOf(copy?.blob ?? new Blob())).toEqual(await bytesOf(original.blob));
+    }
+  });
+
+  it('saves only images the sheet uses', async () => {
+    const extra = new Map(assets).set('unused', asset('unused', [42]));
+    const opened = await parseProject(await serializeProject(sheet, extra));
+    expect(opened.assets.has('unused')).toBe(false);
+  });
+
+  it('starts with the PrintSheet signature', async () => {
+    const file = await serializeProject(sheet, assets);
+    expect(new TextDecoder().decode(new Uint8Array(await file.slice(0, 8).arrayBuffer()))).toBe(
+      PROJECT_MAGIC,
+    );
+  });
+
+  it('refuses a file that is not a PrintSheet project', async () => {
+    await expect(parseProject(new Blob(['hello world, not a project']))).rejects.toThrow(
+      /not a PrintSheet project/,
+    );
+    await expect(parseProject(new Blob([]))).rejects.toThrow(/not a PrintSheet project/);
+  });
+
+  it('refuses a file cut short', async () => {
+    const file = await serializeProject(sheet, assets);
+    await expect(parseProject(file.slice(0, file.size - 2))).rejects.toThrow(/damaged/);
+    await expect(parseProject(file.slice(0, 14))).rejects.toThrow(/damaged/);
+  });
+
+  it('refuses a project from a newer version', async () => {
+    const file = await withHeader(await serializeProject(sheet, assets), (h) => {
+      h['version'] = 99;
+    });
+    await expect(parseProject(file)).rejects.toThrow(/newer version/);
+  });
+
+  it('refuses an image stored outside the file', async () => {
+    const file = await withHeader(await serializeProject(sheet, assets), (h) => {
+      const list = h['assets'] as Array<Record<string, unknown>>;
+      if (list[0]) list[0]['offset'] = 1e9;
+    });
+    await expect(parseProject(file)).rejects.toThrow(/damaged/);
+  });
+
+  it('opens the rest of the sheet when one design points at a missing image', async () => {
+    const file = await withHeader(await serializeProject(sheet, assets), (h) => {
+      const s = h['sheet'] as { designs: Array<Record<string, unknown>> };
+      if (s.designs[0]) s.designs[0]['assetId'] = 'nope';
+    });
+    const opened = await parseProject(file);
+    expect(opened.sheet.designs.map((d) => d.id)).toEqual(['d2', 'd3']);
+    expect(opened.dropped).toBe(1);
+  });
+
+  it('opens the rest of the sheet when one design has impossible numbers', async () => {
+    for (const bad of [-5, 'NaN']) {
+      const file = await withHeader(await serializeProject(sheet, assets), (h) => {
+        const s = h['sheet'] as { designs: Array<Record<string, unknown>> };
+        if (s.designs[0]) s.designs[0]['widthMm'] = bad;
+      });
+      const opened = await parseProject(file);
+      expect(opened.sheet.designs).toHaveLength(2);
+      expect(opened.dropped).toBe(1);
+    }
+  });
+
+  it('refuses broken sheet settings', async () => {
+    for (const edit of [
+      (s: { designs: Array<Record<string, unknown>>; settings: Record<string, unknown> }) => {
+        s.settings['sheetWidthMm'] = 50000;
+      },
+      (s: { designs: Array<Record<string, unknown>>; settings: Record<string, unknown> }) => {
+        s.settings['lengthMode'] = 'sideways';
+      },
+    ]) {
+      const file = await withHeader(await serializeProject(sheet, assets), (h) =>
+        edit(h['sheet'] as never),
+      );
+      await expect(parseProject(file)).rejects.toThrow(/damaged/);
+    }
+  });
+
+  it('refuses a header that is not valid JSON', async () => {
+    const magic = new TextEncoder().encode(PROJECT_MAGIC);
+    const json = new TextEncoder().encode('{"version":1,');
+    const length = new Uint8Array(4);
+    new DataView(length.buffer).setUint32(0, json.length);
+    await expect(parseProject(new Blob([magic, length, json]))).rejects.toThrow(/damaged/);
+  });
+});

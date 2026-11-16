@@ -1,0 +1,11 @@
+{
+  "plugins": ["typescript", "import", "unicorn"],
+  "categories": { "correctness": "error", "suspicious": "warn" },
+  "rules": {
+    "import/no-relative-parent-imports": "error",
+    // postMessage here goes to Web Workers and a BroadcastChannel, which take no target origin.
+    "unicorn/require-post-message-target-origin": "off",
+    // window.__printsheet is the read-only test hook; __APP_VERSION__ is set at build time.
+    "no-underscore-dangle": ["warn", { "allow": ["__printsheet", "__APP_VERSION__"] }]
+  }
+}
