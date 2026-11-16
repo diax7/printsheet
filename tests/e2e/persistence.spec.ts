@@ -53,7 +53,7 @@ test('saves a project file and opens it again exactly', async ({ page }, info) =
 
   await page.click('#new-sheet');
   await page.getByRole('button', { name: 'Start new sheet' }).click();
-  expect(await designs(page)).toHaveLength(0);
+  await expect.poll(async () => (await designs(page)).length).toBe(0);
 
   await page.setInputFiles('#project-input', file);
   await expect(page.locator('.design-item')).toHaveCount(2);
@@ -83,6 +83,7 @@ test('a 1 px image and a hairline survive a reload and a project round trip', as
   await download.saveAs(file);
   await page.click('#new-sheet');
   await page.getByRole('button', { name: 'Start new sheet' }).click();
+  await expect.poll(async () => (await designs(page)).length).toBe(0);
   await page.setInputFiles('#project-input', file);
   await expect(page.locator('.design-item')).toHaveCount(3);
   expect((await state(page)).sheet).toEqual(before.sheet);
@@ -163,6 +164,7 @@ test('a new sheet in one tab does not destroy the sheet another tab is saving', 
   await expect(other.locator('.design-item')).toHaveCount(2);
   await other.click('#new-sheet');
   await other.getByRole('button', { name: 'Start new sheet' }).click();
+  await expect(other.locator('.design-item')).toHaveCount(0);
   await other.waitForTimeout(900);
   await other.close();
   // The first tab keeps working and saves again.
