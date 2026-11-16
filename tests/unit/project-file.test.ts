@@ -172,6 +172,21 @@ describe('project file', () => {
     }
   });
 
+  it('refuses image entries that overlap or repeat, so a small file cannot claim huge images', async () => {
+    const file = await serializeProject(sheet, assets);
+    const repeated = await withHeader(file, (h) => {
+      const list = h['assets'] as Array<Record<string, unknown>>;
+      const first = list[0];
+      if (first) for (let i = 0; i < 50; i++) list.push({ ...first, id: `copy${i}` });
+    });
+    await expect(parseProject(repeated)).rejects.toThrow(/damaged/);
+    const sameId = await withHeader(file, (h) => {
+      const list = h['assets'] as Array<Record<string, unknown>>;
+      if (list[1] && list[0]) list[1]['id'] = list[0]['id'];
+    });
+    await expect(parseProject(sameId)).rejects.toThrow(/damaged/);
+  });
+
   it('refuses broken sheet settings', async () => {
     for (const edit of [
       (s: { designs: Array<Record<string, unknown>>; settings: Record<string, unknown> }) => {

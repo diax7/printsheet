@@ -81,6 +81,20 @@ function int(n: unknown, max: number): n is number {
   return Number.isInteger(n) && (n as number) >= 0 && (n as number) <= max;
 }
 
+/**
+ * Each image must have its own id and its own bytes. Overlapping or repeated entries would let a
+ * small file claim many large images and exhaust memory when they are copied out.
+ */
+function checkNoOverlap(entries: readonly AssetEntry[]): void {
+  if (new Set(entries.map((e) => e.id)).size !== entries.length) throw damaged('repeated image');
+  const sorted = entries.toSorted((a, b) => a.offset - b.offset);
+  for (let i = 1; i < sorted.length; i++) {
+    const before = sorted[i - 1] as AssetEntry;
+    if ((sorted[i] as AssetEntry).offset < before.offset + before.size)
+      throw damaged('overlapping images');
+  }
+}
+
 function checkEntry(v: unknown, dataSize: number): AssetEntry {
   if (!isRecord(v)) throw damaged('image list');
   const { id, name, widthPx, heightPx, hasTransparency, offset, size } = v;
@@ -138,27 +152,30 @@ export async function parseProject(
 
   const dataStart = 12 + headerLength;
   const entries = header['assets'].map((e) => checkEntry(e, file.size - dataStart));
+  checkNoOverlap(entries);
+
+  let layout;
+  try {
+    layout = validateSheetLenient(header['sheet'], new Set(entries.map((e) => e.id)));
+  } catch (error) {
+    throw damaged(error instanceof Error ? error.message : 'layout');
+  }
+  // Copy out only the images a usable design needs. The bytes are copied because a slice stays
+  // tied to the file and breaks if the file is moved later.
+  const used = new Set(layout.sheet.designs.map((d) => d.assetId));
   const assets = new Map<string, ImageAsset>();
-  for (const e of entries) {
+  for (const e of entries.filter((x) => used.has(x.id))) {
+    const bytes = await file
+      .slice(dataStart + e.offset, dataStart + e.offset + e.size)
+      .arrayBuffer();
     assets.set(e.id, {
       id: e.id,
       name: e.name,
       widthPx: e.widthPx,
       heightPx: e.heightPx,
       hasTransparency: e.hasTransparency,
-      // Copy the bytes out of the file: a slice stays tied to it and breaks if it is moved later.
-      blob: new Blob(
-        [await file.slice(dataStart + e.offset, dataStart + e.offset + e.size).arrayBuffer()],
-        {
-          type: 'image/png',
-        },
-      ),
+      blob: new Blob([bytes], { type: 'image/png' }),
     });
   }
-  try {
-    const { sheet, dropped } = validateSheetLenient(header['sheet'], new Set(assets.keys()));
-    return { sheet, assets, dropped };
-  } catch (error) {
-    throw damaged(error instanceof Error ? error.message : 'layout');
-  }
+  return { sheet: layout.sheet, assets, dropped: layout.dropped };
 }
