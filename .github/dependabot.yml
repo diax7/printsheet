@@ -8,6 +8,10 @@ updates:
       default-days: 7
     open-pull-requests-limit: 3
     rebase-strategy: disabled
+    ignore:
+      # Type definitions follow the Node version the project runs on (22 LTS), not the newest.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       npm:
         patterns: ['*']
