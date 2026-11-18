@@ -35,6 +35,10 @@ import { safeFileName } from '@/editor/export-dialog';
 import { Packer } from '@/model/packer';
 import { bandsFor, fallbackTop } from '@/model/pages';
 import { mountLayoutControls } from '@/editor/layout-controls';
+import { mountActionBar } from '@/editor/action-bar';
+import { mountSpacePan } from '@/editor/space-pan';
+import { mountShortcutsKey } from '@/editor/shortcuts';
+import { mountTopbar } from '@/editor/topbar';
 
 const emptySheet = (settings = DEFAULT_SETTINGS): Sheet => ({
   designs: [],
@@ -99,6 +103,17 @@ const inspector = mountInspector(
   (v) => setPrefs({ ...prefs, allowRotate: v }),
   (ids) => void arrange.run(ids),
 );
+mountActionBar({
+  store,
+  view: canvasView,
+  overlay: byId('stage-overlay'),
+  scroller: byId('scroller'),
+  surface: byId('viewport'),
+  arrange: (ids) => void arrange.run(ids),
+});
+mountSpacePan(canvasView, byId('viewport'));
+mountShortcutsKey();
+const topbar = mountTopbar(store);
 const rulerTop = byId<HTMLCanvasElement>('ruler-top');
 const rulerLeft = byId<HTMLCanvasElement>('ruler-left');
 canvasView.onViewChange(() =>
@@ -123,6 +138,7 @@ function renderAll(): void {
   panel.render();
   layoutControls.render();
   inspector.render();
+  topbar.render();
   byId<HTMLButtonElement>('undo').disabled = !store.canUndo();
   byId<HTMLButtonElement>('redo').disabled = !store.canRedo();
   byId('empty-state').hidden = sheet.designs.length > 0;

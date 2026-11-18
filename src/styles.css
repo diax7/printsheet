@@ -117,11 +117,40 @@ select {
   color: var(--ink);
 }
 
+.file-group {
+  position: relative;
+  display: flex;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--line);
+}
+
 .file-actions {
   display: flex;
   gap: 2px;
-  padding-inline-start: 8px;
-  border-inline-start: 1px solid var(--line);
+}
+
+/* Below 1100 px New, Open and Save move into this drop-down instead of disappearing. */
+.file-group .file-menu-btn {
+  display: none;
+}
+
+.top-film {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-s);
+  background: var(--chrome);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.top-film #top-film-meters {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
 }
 
 .toolbar {
@@ -136,6 +165,7 @@ select {
 
 .topbar-end {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -783,6 +813,150 @@ input[aria-invalid='true'] {
   margin: 0 0 14px;
 }
 
+/*
+ * The layer over the visible sheet that holds the floating action bar. It lets the mouse through
+ * to the sheet except on the bar itself.
+ */
+.stage-overlay {
+  grid-column: 2;
+  grid-row: 2;
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  container-type: inline-size;
+}
+
+.action-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(20, 30, 25, 0.24);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 560;
+}
+
+.bar-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+.bar-btn:hover:not(:disabled) {
+  background: var(--chrome);
+}
+
+.bar-btn[aria-expanded='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.bar-btn[data-action='delete']:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.bar-btn[data-action='delete']:hover:not(:disabled) svg {
+  color: var(--danger);
+}
+
+.bar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A narrow sheet area keeps the icons and tooltips; the names stay for screen readers. */
+@container (max-width: 560px) {
+  .bar-btn {
+    padding: 0;
+  }
+  .bar-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
+.menu {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  min-width: 210px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(20, 30, 25, 0.26);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu-item svg,
+.menu-icon-space {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--chrome);
+}
+
+.menu-item:focus-visible {
+  outline-offset: -2px;
+}
+
+.menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
 .drop-overlay {
   position: absolute;
   inset: 0;
@@ -997,8 +1171,64 @@ progress {
   .app {
     grid-template-columns: 236px minmax(0, 1fr) 232px;
   }
+  .file-group .file-menu-btn {
+    display: inline-flex;
+  }
   .file-actions {
     display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 25;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 170px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+    box-shadow: 0 10px 30px rgba(20, 30, 25, 0.26);
+  }
+  .file-group.open .file-actions {
+    display: flex;
+  }
+  .file-actions .btn {
+    justify-content: flex-start;
+    color: var(--ink);
+  }
+}
+
+/*
+ * Narrower PC windows keep every top-bar control by dropping words, never buttons: first the
+ * app's name and "of film", then the names of Add images and Arrange (their icons and tooltips
+ * stay, and screen readers still hear the names).
+ */
+@media (min-width: 821px) and (max-width: 1260px) {
+  .topbar {
+    gap: 8px;
+  }
+  .sep {
+    margin: 0 4px;
+  }
+  .brand span,
+  .top-film-word {
+    display: none;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 980px) {
+  #add-images,
+  #arrange {
+    width: 32px;
+    padding: 0;
+  }
+  #add-images .btn-label,
+  #arrange .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 }
 
@@ -1032,9 +1262,32 @@ progress {
   .topbar-end {
     margin-inline-start: auto;
   }
+  /*
+   * Until the phone layout of phase 2, the first row keeps its old size: the logo without the
+   * name, and no film chip (the panel right below shows the film length).
+   */
+  .brand span,
+  .top-film {
+    display: none;
+  }
   /* With nothing selected the right panel only holds desktop help and keyboard shortcuts. */
   .panel-right:has(> .inspector-empty) {
     display: none;
+  }
+  /* Phones get their own bottom bar for the selection (phase 2), not the floating one. */
+  .action-bar {
+    display: none !important;
+  }
+}
+
+/* Fingers (a phone, or a tablet in the PC layout) get 44 px targets. */
+@media (pointer: coarse) {
+  .bar-btn,
+  .menu-item,
+  .file-menu-btn,
+  .file-actions .btn {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 

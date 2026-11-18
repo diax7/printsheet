@@ -11,6 +11,7 @@
  *  - View → store happens once per gesture, on `object:modified` (never while dragging).
  *  - Multi-selections only move. Single designs scale uniformly from the corners and rotate.
  *  - Selection events caused by our own sync are ignored (`syncing` guard).
+ *  - Alt + drag leaves copies where the designs started (one commit with the move).
  */
 import {
   ActiveSelection,
@@ -27,6 +28,9 @@ import { drawMat, drawSheets, viewLengthMm } from '@/editor/film';
 import { normalizeAngle, updateDesigns } from '@/model/ops';
 import { formatCm } from '@/model/units';
 import type { Design, Sheet } from '@/model/types';
+import { moveLeavingCopies } from '@/editor/actions';
+import { drawStayingCopies, mountAltDrag } from '@/editor/alt-drag';
+import { designAt, screenBoxOf, type ScreenBox } from '@/editor/canvas-geometry';
 import { loadPreview, readyPreview } from '@/image/previews';
 import type { Store } from '@/store/store';
 import type { Prefs } from '@/prefs';
@@ -43,6 +47,9 @@ interface DesignObject extends FabricImage {
   designId?: string;
 }
 
+/** Space + drag panning: off, waiting for the mouse (grab cursor), or panning. */
+export type PanMode = 'off' | 'ready' | 'panning';
+
 export interface CanvasView {
   zoom(): number;
   setZoom(zoom: number, anchor?: { x: number; y: number }): void;
@@ -54,6 +61,18 @@ export interface CanvasView {
   onViewChange(fn: () => void): void;
   /** The viewport transform (screen px from scene mm), read by the rulers. */
   transform(): TMat2D;
+  /** Where these designs are on the page (client px), or null when none of them exists. */
+  screenBox(ids: readonly string[]): ScreenBox | null;
+  /** The id of the topmost design under a page point, or null over empty sheet or mat. */
+  targetAt(clientX: number, clientY: number): string | null;
+  /** Scroll the sheet by screen pixels. */
+  panBy(dx: number, dy: number): void;
+  /** While panning, Fabric finds no targets and draws no selection box. */
+  setPanMode(mode: PanMode): void;
+  /** Called after every frame Fabric draws. */
+  onRender(fn: () => void): void;
+  /** Called when a drag, scale or rotate starts (true) and when the mouse is let go (false). */
+  onGesture(fn: (active: boolean) => void): void;
 }
 
 interface Guide {
@@ -132,6 +151,8 @@ export function mountCanvas(
     // On a phone a finger swipe must scroll the sheet (else only its first screenful can be
     // seen). Swipes on the mat or on an unselected design scroll; a selected design still drags.
     allowTouchScrolling: true,
+    // The browser's own menu stays on empty canvas; over a design the action bar opens its menu.
+    stopContextMenu: false,
   });
   canvas.fireMiddleClick = false;
 
@@ -142,6 +163,10 @@ export function mountCanvas(
   let guides: Guide[] = [];
   const zoomListeners: Array<(z: number) => void> = [];
   const viewListeners: Array<() => void> = [];
+  const renderListeners: Array<() => void> = [];
+  const gestureListeners: Array<(active: boolean) => void> = [];
+  let gestureActive = false;
+  const altDrag = mountAltDrag(canvas, store);
 
   const scale = (): number => zoom * PX_PER_MM;
 
@@ -420,10 +445,23 @@ export function mountCanvas(
     // Read the result now, commit just after Fabric is done. Events we caused are ignored.
     if (syncing) return;
     const patches = gesturePatches();
+    const copy = altDrag.leaving();
     if (patches?.size)
-      queueMicrotask(() => store.commit(updateDesigns(store.get().sheet, patches)));
+      queueMicrotask(() =>
+        copy
+          ? moveLeavingCopies(store, patches)
+          : store.commit(updateDesigns(store.get().sheet, patches)),
+      );
   });
+  const setGesture = (active: boolean): void => {
+    if (gestureActive === active) return;
+    gestureActive = active;
+    for (const fn of gestureListeners) fn(active);
+  };
+  for (const name of ['object:moving', 'object:scaling', 'object:rotating'] as const)
+    canvas.on(name, () => setGesture(true));
   canvas.on('mouse:up', () => {
+    setGesture(false);
     if (guides.length) {
       guides = [];
       canvas.requestRenderAll();
@@ -524,8 +562,27 @@ export function mountCanvas(
     ctx.restore();
   }
 
-  canvas.on('before:render', ({ ctx }) => drawBackground(ctx));
-  canvas.on('after:render', ({ ctx }) => drawOverlay(ctx));
+  /** During an Alt + drag the store still holds where the designs started: draw them there. */
+  function drawCopiesLeftBehind(ctx: CanvasRenderingContext2D): void {
+    const ids = new Set(activeIds());
+    const items = store
+      .get()
+      .sheet.designs.filter((d) => ids.has(d.id))
+      .flatMap((d) => {
+        const obj = objects.get(d.id);
+        return obj ? [{ d, image: obj.getElement() }] : [];
+      });
+    drawStayingCopies(ctx, canvas.viewportTransform, canvas.getRetinaScaling(), items);
+  }
+
+  canvas.on('before:render', ({ ctx }) => {
+    drawBackground(ctx);
+    if (altDrag.leaving() && gestureActive) drawCopiesLeftBehind(ctx);
+  });
+  canvas.on('after:render', ({ ctx }) => {
+    drawOverlay(ctx);
+    for (const fn of renderListeners) fn();
+  });
 
   /* ---------- Zoom and scroll ---------- */
 
@@ -614,5 +671,19 @@ export function mountCanvas(
     onZoomChange: (fn) => zoomListeners.push(fn),
     onViewChange: (fn) => viewListeners.push(fn),
     transform: () => canvas.viewportTransform,
+    screenBox: (ids) => screenBoxOf(canvas, canvasEl, store, ids),
+    targetAt: (clientX, clientY) => designAt(canvas, canvasEl, store, { x: clientX, y: clientY }),
+    panBy(dx, dy) {
+      scroller.scrollLeft += dx;
+      scroller.scrollTop += dy;
+    },
+    setPanMode(mode) {
+      canvas.skipTargetFind = mode !== 'off';
+      canvas.selection = mode === 'off';
+      canvas.defaultCursor = { off: 'default', ready: 'grab', panning: 'grabbing' }[mode];
+      canvas.setCursor(canvas.defaultCursor);
+    },
+    onRender: (fn) => renderListeners.push(fn),
+    onGesture: (fn) => gestureListeners.push(fn),
   };
 }

@@ -154,17 +154,20 @@ export async function downloadBytes(download: Download): Promise<Buffer> {
 }
 
 /**
- * Click Arrange and wait until it is done. Arrange searches in a worker for up to a few seconds,
- * commits the layout (or keeps the one on the sheet when it finds nothing shorter) and then says
- * "Arranged"; an earlier "Arranged" message is waited out first, so it cannot be mistaken for
- * this one.
+ * Click Arrange (or start it another way, with `trigger`) and wait until it is done. Arrange
+ * searches in a worker for up to a few seconds, commits the layout (or keeps the one on the sheet
+ * when it finds nothing shorter) and then says "Arranged"; an earlier "Arranged" message is
+ * waited out first, so it cannot be mistaken for this one.
  */
-export async function arrange(page: Page): Promise<void> {
+export async function arrange(
+  page: Page,
+  trigger: () => Promise<void> = () => page.click('#arrange'),
+): Promise<void> {
   const done = page.locator('.toast', { hasText: 'Arranged' });
   // Close earlier Arrange messages (some stay 12 s), so this run's message is the only one.
   for (const close of await done.locator('button[aria-label="Dismiss"]').all()) await close.click();
   await expect(done).toHaveCount(0);
-  await page.click('#arrange');
+  await trigger();
   await expect(done).toHaveCount(1, { timeout: 20_000 });
   await expect(page.locator('#arrange-dialog')).toBeHidden();
 }

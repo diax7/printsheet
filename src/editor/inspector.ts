@@ -1,31 +1,29 @@
 /**
  * Right panel: everything about the selection. One design: name, exact size in cm (typed),
  * angle, flips, lock, copies, layer order, alignment to the sheet. Several: align, distribute,
- * duplicate, arrange, delete. Nothing selected: what to do next and the keyboard shortcuts.
+ * duplicate, arrange, delete. Nothing selected: what to do next, and a way to the shortcuts.
  *
  * A locked design is read-only here: its size, angle, flips and position cannot change and it
  * cannot be deleted until it is unlocked.
  */
 import { align, distribute, type AlignEdge } from '@/model/align';
-import { moveOntoSheets, MAX_COPIES } from '@/model/arrange';
-import { offSheetReason } from '@/model/pages';
+import { MAX_COPIES } from '@/model/arrange';
 import { findIssues, type Issue } from '@/model/checks';
 import { dpiLevel, effectiveDpi, unionFootprint } from '@/model/geometry';
-import {
-  moveOntoSheet,
-  normalizeAngle,
-  reorder,
-  resizeKeepingCorner,
-  rotateBy,
-  updateDesign,
-  updateDesigns,
-} from '@/model/ops';
+import { normalizeAngle, reorder, resizeKeepingCorner, rotateBy, updateDesign } from '@/model/ops';
 import { formatCm } from '@/model/units';
 import { MAX_SIZE_MM, MIN_SIZE_MM, type Design, type Sheet } from '@/model/types';
 import { readyPreview } from '@/image/previews';
-import { addCopies, deleteUnlocked, duplicateSelected } from '@/editor/actions';
+import {
+  addCopies,
+  deleteUnlocked,
+  duplicateSelected,
+  sheetFix,
+  toggleLock,
+} from '@/editor/actions';
 import { byId, el, icon, readNumber, setInputValue, toast } from '@/editor/dom';
 import { ISSUE_TEXT, isSerious } from '@/editor/panel';
+import { openShortcuts } from '@/editor/shortcuts';
 import type { Store } from '@/store/store';
 
 interface Ctx {
@@ -174,6 +172,7 @@ function summarySection(ctx: Ctx, d: Design, issues: Issue[]): HTMLElement {
   const preview = readyPreview(d.assetId);
   const dpi = asset ? effectiveDpi(d, asset) : 0;
   const kinds = [...new Set(issues.map((i) => i.kind))];
+  const fix = sheetFix(ctx.store, [d.id], new Set(kinds.includes('outside') ? [d.id] : []));
   return section(
     el(
       'div',
@@ -196,43 +195,8 @@ function summarySection(ctx: Ctx, d: Design, issues: Issue[]): HTMLElement {
           ),
         )
       : null,
-    kinds.includes('outside') && !crossingSplit(ctx, d)
-      ? textButton(
-          'arrange',
-          'Move onto the sheet',
-          () => ctx.commit(moveOntoSheet(ctx.store.get().sheet, [d.id])),
-          'btn btn-primary-soft',
-          d.locked,
-        )
-      : null,
-    // Only a design across a split can be moved onto a sheet; one longer than a sheet cannot.
-    crossingSplit(ctx, d)
-      ? textButton(
-          'arrange',
-          'Move onto a sheet',
-          () => moveOntoASheet(ctx, d.id),
-          'btn btn-primary-soft',
-          d.locked,
-        )
-      : null,
+    fix ? textButton('arrange', fix.label, fix.run, 'btn btn-primary-soft', d.locked) : null,
   );
-}
-
-/**
- * True when a design of a split job is on no sheet but could be moved onto one. That one button
- * also fixes the top edge, so the plain "Move onto the sheet" is not shown beside it.
- */
-function crossingSplit(ctx: Ctx, d: Design): boolean {
-  const settings = ctx.store.get().sheet.settings;
-  return settings.layout === 'split' && offSheetReason(d, settings) === 'crossing';
-}
-
-function moveOntoASheet(ctx: Ctx, id: string): void {
-  const sheet = ctx.store.get().sheet;
-  const next = moveOntoSheets(sheet, [id]);
-  if (next === sheet)
-    toast('No sheet has room for it. Remove designs or make the sheets longer.', 'error');
-  else ctx.commit(next);
 }
 
 function detailsSection(ctx: Ctx, d: Design): HTMLElement {
@@ -295,7 +259,7 @@ function arrangeSection(ctx: Ctx, d: Design): HTMLElement {
       textButton(
         d.locked ? 'unlock' : 'lock',
         d.locked ? 'Unlock' : 'Lock position',
-        () => ctx.commit(updateDesign(sheet(), d.id, { locked: !d.locked })),
+        () => toggleLock(ctx.store, [d.id]),
         'btn btn-quiet',
       ),
     ),
@@ -423,9 +387,7 @@ function renderMany(ctx: Ctx, ids: string[]): HTMLElement {
         { class: 'tool-row' },
         textButton('duplicate', 'Duplicate', () => duplicateSelected(ctx.store, ids)),
         textButton(anyLocked ? 'unlock' : 'lock', anyLocked ? 'Unlock all' : 'Lock all', () =>
-          ctx.commit(
-            updateDesigns(current(), new Map(ids.map((id) => [id, { locked: !anyLocked }]))),
-          ),
+          toggleLock(ctx.store, ids),
         ),
         textButton('delete', 'Delete', () => deleteUnlocked(ctx.store, ids)),
       ),
@@ -434,17 +396,14 @@ function renderMany(ctx: Ctx, ids: string[]): HTMLElement {
 }
 
 function renderNone(): HTMLElement {
-  const shortcuts: Array<[string, string]> = [
-    ['Ctrl+V', 'Paste an image'],
-    ['Ctrl+A', 'Select all'],
-    ['Ctrl+D', 'Duplicate'],
-    ['Delete', 'Remove'],
-    ['Arrows', 'Move 1 mm (Shift: 1 cm)'],
-    ['Ctrl+Z', 'Undo'],
-    ['Ctrl+Shift+Z', 'Redo'],
-    ['Ctrl+wheel', 'Zoom'],
-    ['Ctrl+S', 'Save project'],
-  ];
+  const shortcuts = el('button', {
+    class: 'btn btn-outline',
+    type: 'button',
+    id: 'show-shortcuts',
+    text: 'Keyboard shortcuts',
+    title: 'Keyboard shortcuts (?)',
+  });
+  shortcuts.addEventListener('click', openShortcuts);
   return el(
     'div',
     { class: 'inspector inspector-empty' },
@@ -452,12 +411,8 @@ function renderNone(): HTMLElement {
     el('p', {
       text: 'Click a design to see and change its exact size. Drag across the sheet to select several.',
     }),
-    el('h2', { text: 'Shortcuts' }),
-    el(
-      'dl',
-      { class: 'kbd-list' },
-      ...shortcuts.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]),
-    ),
+    el('p', { text: 'Press ? to see every keyboard shortcut.' }),
+    shortcuts,
   );
 }
 

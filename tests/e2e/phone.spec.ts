@@ -104,3 +104,40 @@ test('the "Nothing selected" help and shortcuts are not shown on a phone', async
   await page.locator('.design-item').first().click();
   await expect(page.locator('#insp-width')).toBeVisible();
 });
+
+test('the File menu, Arrange and Export share the first row of the top bar', async ({ page }) => {
+  const middles = await Promise.all(
+    ['#file-menu', '#arrange', '#export'].map(async (id) => {
+      const box = await page.locator(id).boundingBox();
+      return box ? box.y + box.height / 2 : NaN;
+    }),
+  );
+  for (const middle of middles) expect(middle).toBeCloseTo(middles[0] ?? NaN, 0);
+  await expect(page.locator('#action-bar')).toBeHidden();
+});
+
+test('Escape in the right-click menu gives focus back to the sheet, as the bar is hidden', async ({
+  page,
+}) => {
+  await addImages(page, ['f-shape.png']);
+  const d = (await designs(page))[0];
+  if (!d) throw new Error('no design');
+  await page.evaluate(() =>
+    document.getElementById('scroller')?.scrollIntoView({ block: 'start' }),
+  );
+  const point = await page.evaluate(
+    ([x, y]) =>
+      (
+        window as unknown as {
+          __printsheet: { toClient(x: number, y: number): { x: number; y: number } };
+        }
+      ).__printsheet.toClient(x, y),
+    [d.xMm, d.yMm] as const,
+  );
+  await page.mouse.click(point.x, point.y, { button: 'right' });
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(page.locator('#scroller')).toBeFocused();
+});

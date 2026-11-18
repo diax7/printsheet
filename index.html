@@ -26,31 +26,49 @@
           </svg>
           <span>PrintSheet</span>
         </div>
-        <div class="file-actions" role="group" aria-label="Project">
-          <button class="btn btn-quiet" id="new-sheet" type="button" title="Start an empty sheet">
-            New
-          </button>
+        <div class="file-group" id="file-group">
           <button
-            class="btn btn-quiet"
-            id="open-project"
+            class="btn btn-quiet file-menu-btn"
+            id="file-menu"
             type="button"
-            title="Open a .printsheet project file"
+            aria-expanded="false"
+            aria-controls="file-actions"
+            title="New, Open and Save"
           >
-            Open
+            File
           </button>
-          <button
-            class="btn btn-quiet"
-            id="save-project"
-            type="button"
-            title="Save the sheet and its images as one .printsheet file (Ctrl+S)"
-          >
-            Save
-          </button>
-          <input id="project-input" type="file" accept=".printsheet" hidden />
+          <div class="file-actions" id="file-actions" role="group" aria-label="Project">
+            <button class="btn btn-quiet" id="new-sheet" type="button" title="Start an empty sheet">
+              New
+            </button>
+            <button
+              class="btn btn-quiet"
+              id="open-project"
+              type="button"
+              title="Open a .printsheet project file"
+            >
+              Open
+            </button>
+            <button
+              class="btn btn-quiet"
+              id="save-project"
+              type="button"
+              title="Save the sheet and its images as one .printsheet file (Ctrl+S)"
+            >
+              Save
+            </button>
+            <input id="project-input" type="file" accept=".printsheet" hidden />
+          </div>
         </div>
         <div class="toolbar" role="toolbar" aria-label="Editor">
-          <button class="btn btn-primary-soft" id="add-images" type="button" data-icon="add">
-            Add images
+          <button
+            class="btn btn-primary-soft"
+            id="add-images"
+            type="button"
+            data-icon="add"
+            title="Add PNG, JPEG or WebP images"
+          >
+            <span class="btn-label">Add images</span>
           </button>
           <input
             id="file-input"
@@ -150,6 +168,9 @@
           ></button>
         </div>
         <div class="topbar-end">
+          <p class="top-film" title="Film this sheet needs">
+            <span id="top-film-meters">0.00</span> m<span class="top-film-word"> of film</span>
+          </p>
           <button
             class="btn btn-quiet"
             id="arrange"
@@ -157,7 +178,7 @@
             data-icon="arrange"
             title="Pack designs to use less film"
           >
-            Arrange
+            <span class="btn-label">Arrange</span>
           </button>
           <button class="btn btn-primary" id="export" type="button" data-icon="export">
             Export
@@ -330,6 +351,7 @@
           <div class="viewport" id="viewport"><canvas id="sheet-canvas"></canvas></div>
           <div class="spacer" id="spacer"></div>
         </div>
+        <div class="stage-overlay" id="stage-overlay"></div>
         <div class="empty" id="empty-state">
           <p class="empty-title">Drop your designs here</p>
           <p>
@@ -364,5 +386,7 @@
     <dialog class="dialog" id="confirm-dialog"></dialog>
     <dialog class="dialog" id="arrange-dialog" aria-labelledby="arrange-title"></dialog>
     <dialog class="dialog" id="about-dialog" aria-labelledby="about-title"></dialog>
+    <dialog class="dialog" id="shortcuts-dialog" aria-labelledby="shortcuts-title"></dialog>
+    <dialog class="dialog" id="copies-dialog" aria-labelledby="copies-title"></dialog>
   </body>
 </html>

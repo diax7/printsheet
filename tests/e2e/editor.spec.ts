@@ -251,11 +251,13 @@ test('a locked design cannot be resized, flipped or deleted until unlocked', asy
   await expect(page.locator('#insp-width')).toBeDisabled();
   await expect(page.locator('#insp-angle')).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Flip horizontally' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Delete' })).toBeDisabled();
+  // The inspector's buttons; the action bar by the design has its own Delete and Unlock.
+  const inspector = page.locator('#inspector');
+  await expect(inspector.getByRole('button', { name: 'Delete' })).toBeDisabled();
   await page.locator('#scroller').focus();
   await page.keyboard.press('Delete');
   expect(await designs(page)).toHaveLength(1);
-  await page.getByRole('button', { name: 'Unlock' }).click();
+  await inspector.getByRole('button', { name: 'Unlock' }).click();
   await expect(page.locator('#insp-width')).toBeEnabled();
 });
 
