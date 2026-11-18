@@ -32,19 +32,19 @@ async function swipeUp(page: Page, x: number, y: number, distance: number): Prom
 }
 
 test('a finger swipe on the canvas scrolls a long sheet on a phone', async ({ page }) => {
-  // A sheet over a metre long: big designs, two to a row.
+  // A sheet about two metres long: big designs, two to a row.
   await addImages(page, ['f-shape.png']);
   await typeField(page, '#insp-width', '25');
   await page.keyboard.press('Escape');
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     await page.keyboard.press('Control+a');
     await page.keyboard.press('Control+d');
   }
-  await expect.poll(async () => (await designs(page)).length).toBe(4);
+  await expect.poll(async () => (await designs(page)).length).toBe(8);
   await page.locator('#arrange').click();
   await expect
     .poll(async () => Number(await page.locator('#film-meters').textContent()))
-    .toBeGreaterThan(0.75);
+    .toBeGreaterThan(1.5);
   await page.keyboard.press('Escape');
 
   const scroller = page.locator('#scroller');
@@ -62,4 +62,11 @@ test('the zoom buttons can be reached on a phone', async ({ page }) => {
   for (const id of ['#zoom-out', '#zoom-in', '#zoom-fit']) {
     await expect(page.locator(id)).toBeInViewport();
   }
+});
+
+test('the canvas fills most of the phone screen, not a small window', async ({ page }) => {
+  const height = await page
+    .locator('#scroller')
+    .evaluate((el) => el.getBoundingClientRect().height);
+  expect(height).toBeGreaterThan(844 * 0.8);
 });

@@ -1001,8 +1001,10 @@ progress {
     border: 0;
     border-bottom: 1px solid var(--line);
   }
+  /* Scrolled to, the sheet fills nearly the whole phone screen (svh leaves out Safari's bars). */
   .stage {
-    height: 60vh;
+    height: 88vh;
+    height: 92svh;
   }
   /* On a phone the tools get their own row, so zoom and undo stay within reach. */
   .topbar {
