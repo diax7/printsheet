@@ -1,8 +1,9 @@
 /**
- * The PDF export. One page, exactly the sheet's size. Each image is embedded once (at its
+ * The PDF export. One page per sheet, each exactly its sheet's size. Each image is embedded once (at its
  * original resolution, or reduced to the chosen limit) and every design that uses it is drawn
  * with its own transform, so the sheet is never flattened into one picture. Transparency is a
- * soft mask, so DTF software sees exactly where ink goes.
+ * lossless soft mask, so DTF software sees exactly where ink goes. Colour is stored either
+ * lossless or, in compact mode, as a high-quality JPEG (RGB only).
  */
 import {
   PDFDocument,
@@ -14,7 +15,10 @@ import {
   popGraphicsState,
   pushGraphicsState,
 } from 'pdf-lib';
+import { bleedTransparent } from '@/export/bleed';
 import type { CmykConverter } from '@/export/cmyk';
+import { encodeJpeg } from '@/export/jpeg';
+import { filterPaeth } from '@/export/png-filter';
 import { sheetLengthMm, contentLengthMm } from '@/model/geometry';
 import { mmToPt, mmToPx } from '@/model/units';
 import type { Design, ExportOptions, ImageAsset, Sheet } from '@/model/types';
@@ -32,7 +36,10 @@ export interface PdfDeps {
   onProgress?: (done: number, total: number) => void;
 }
 
-export type PdfOptions = Pick<ExportOptions, 'color' | 'pdfMaxDpi' | 'mirror' | 'fileName'>;
+export type PdfOptions = Pick<
+  ExportOptions,
+  'color' | 'pdfMaxDpi' | 'pdfCompression' | 'mirror' | 'fileName'
+>;
 
 /** Pixel size to embed: the original, or smaller so the largest placement is at the limit. */
 export function embedSize(
@@ -59,17 +66,42 @@ export function embedSize(
   };
 }
 
-function splitAlpha(rgba: Uint8ClampedArray): { rgb: Uint8Array; alpha: Uint8Array } {
+/** The three colour channels, or the alpha channel, of RGBA pixels. */
+function channels(rgba: Uint8ClampedArray, pick: 'rgb' | 'alpha'): Uint8Array {
   const count = rgba.length / 4;
+  if (pick === 'alpha') {
+    const alpha = new Uint8Array(count);
+    for (let i = 0; i < count; i++) alpha[i] = rgba[i * 4 + 3] ?? 0;
+    return alpha;
+  }
   const rgb = new Uint8Array(count * 3);
-  const alpha = new Uint8Array(count);
   for (let i = 0; i < count; i++) {
     rgb[i * 3] = rgba[i * 4] ?? 0;
     rgb[i * 3 + 1] = rgba[i * 4 + 1] ?? 0;
     rgb[i * 3 + 2] = rgba[i * 4 + 2] ?? 0;
-    alpha[i] = rgba[i * 4 + 3] ?? 0;
   }
-  return { rgb, alpha };
+  return rgb;
+}
+
+type ImageDict = Parameters<PDFDocument['context']['flateStream']>[1];
+
+/**
+ * A lossless image stream: rows PNG-filtered, then deflated, with the matching Predictor 15 so
+ * readers undo the filter. Exactly the same samples, typically a third smaller than plain Flate.
+ */
+function losslessStream(
+  doc: PDFDocument,
+  samples: Uint8Array,
+  bpp: number,
+  dict: Record<string, unknown>,
+): PDFRef {
+  const width = dict['Width'] as number;
+  const height = dict['Height'] as number;
+  const filtered = filterPaeth(samples, width, height, bpp, null);
+  const parms = { Predictor: 15, Colors: bpp, BitsPerComponent: 8, Columns: width };
+  return doc.context.register(
+    doc.context.flateStream(filtered, { ...dict, DecodeParms: parms } as ImageDict),
+  );
 }
 
 async function embedImage(
@@ -84,28 +116,27 @@ async function embedImage(
   if (rgba.length !== width * height * 4) {
     throw new Error(`Pixels for "${asset.name}" have the wrong size`);
   }
-  const { rgb, alpha } = splitAlpha(rgba);
-  const ctx = doc.context;
-  const base = {
-    Type: 'XObject',
-    Subtype: 'Image',
-    Width: width,
-    Height: height,
-    BitsPerComponent: 8,
-  };
-  let color: Uint8Array = rgb;
-  if (opts.color === 'cmyk') {
-    if (!deps.toCmyk) throw new Error('CMYK export needs the colour converter');
-    color = deps.toCmyk(rgba);
-  }
-  const dict: Record<string, unknown> = {
-    ...base,
-    ColorSpace: opts.color === 'cmyk' ? 'DeviceCMYK' : 'DeviceRGB',
-  };
+  const base = { Type: 'XObject', Subtype: 'Image', Width: width, Height: height };
+  const dict: Record<string, unknown> = { ...base, BitsPerComponent: 8 };
+  // The soft mask is always lossless, so the edge of every design stays exact.
   if (asset.hasTransparency) {
-    dict['SMask'] = ctx.register(ctx.flateStream(alpha, { ...base, ColorSpace: 'DeviceGray' }));
+    dict['SMask'] = losslessStream(doc, channels(rgba, 'alpha'), 1, {
+      ...dict,
+      ColorSpace: 'DeviceGray',
+    });
   }
-  return ctx.register(ctx.flateStream(color, dict as Parameters<typeof ctx.flateStream>[1]));
+  if (opts.color === 'cmyk') {
+    // A JPEG cannot be made in CMYK here, so CMYK stays lossless whatever the setting.
+    if (!deps.toCmyk) throw new Error('CMYK export needs the colour converter');
+    return losslessStream(doc, deps.toCmyk(rgba), 4, { ...dict, ColorSpace: 'DeviceCMYK' });
+  }
+  if (opts.pdfCompression === 'compact') {
+    if (asset.hasTransparency) bleedTransparent(rgba, width, height);
+    const jpeg = encodeJpeg(rgba, width, height);
+    const jpegDict = { ...dict, ColorSpace: 'DeviceRGB', Filter: 'DCTDecode' };
+    return doc.context.register(doc.context.stream(jpeg, jpegDict as ImageDict));
+  }
+  return losslessStream(doc, channels(rgba, 'rgb'), 3, { ...dict, ColorSpace: 'DeviceRGB' });
 }
 
 /**
@@ -152,12 +183,24 @@ function drawDesigns(
   page.pushOperators(...ops);
 }
 
+/**
+ * The PDF: one page per sheet (one page for one long sheet), each exactly its sheet's size. Each
+ * image is embedded once for the whole file, at the resolution its largest placement on any page
+ * needs, and every page that uses it refers to that one copy.
+ *
+ * Args:
+ *   pages: The sheets, in page order (from `splitForExport` for a split job).
+ *   assets: Every image the designs use.
+ *   opts: Colour, compression, image limit, mirror and title.
+ *   deps: Pixel reader, CMYK converter and progress callback.
+ */
 export async function buildPdf(
-  sheet: Sheet,
+  pages: readonly Sheet[],
   assets: ReadonlyMap<string, ImageAsset>,
   opts: PdfOptions,
   deps: PdfDeps,
 ): Promise<Uint8Array> {
+  if (pages.length === 0) throw new Error('There is no sheet to put in the PDF.');
   // updateMetadata: false stops pdf-lib from overwriting the producer with its own name on save.
   const doc = await PDFDocument.create({ updateMetadata: false });
   const now = new Date();
@@ -166,35 +209,36 @@ export async function buildPdf(
   doc.setCreator('PrintSheet');
   doc.setCreationDate(now);
   doc.setModificationDate(now);
-  const lengthMm = Math.max(sheetLengthMm(sheet), contentLengthMm(sheet.designs));
-  const page = doc.addPage([mmToPt(sheet.settings.sheetWidthMm), mmToPt(lengthMm)]);
 
   const byAsset = new Map<string, Design[]>();
-  for (const d of sheet.designs) {
+  for (const d of pages.flatMap((p) => p.designs)) {
     if (!assets.has(d.assetId)) throw new Error(`The image for "${d.name}" is missing`);
     byAsset.set(d.assetId, [...(byAsset.get(d.assetId) ?? []), d]);
   }
-
-  // Keep the PDFName itself: its text form starts with "/", and drawObject would add another.
-  const names = new Map<string, PDFName>();
+  const refs = new Map<string, PDFRef>();
   let done = 0;
   for (const [assetId, placements] of byAsset) {
     const asset = assets.get(assetId) as ImageAsset;
-    const ref = await embedImage(
-      doc,
-      asset,
-      embedSize(asset, placements, opts.pdfMaxDpi),
-      opts,
-      deps,
-    );
-    names.set(assetId, page.node.newXObject('Im', ref));
+    const size = embedSize(asset, placements, opts.pdfMaxDpi);
+    refs.set(assetId, await embedImage(doc, asset, size, opts, deps));
     deps.onProgress?.(++done, byAsset.size);
   }
 
-  drawDesigns(
-    page,
-    sheet.designs.map((design) => ({ design, name: names.get(design.assetId) as PDFName })),
-    opts,
-  );
+  for (const sheet of pages) {
+    const lengthMm = Math.max(sheetLengthMm(sheet), contentLengthMm(sheet.designs));
+    const page = doc.addPage([mmToPt(sheet.settings.sheetWidthMm), mmToPt(lengthMm)]);
+    // Keep the PDFName itself: its text form starts with "/", and drawObject would add another.
+    const names = new Map<string, PDFName>();
+    for (const d of sheet.designs) {
+      if (!names.has(d.assetId)) {
+        names.set(d.assetId, page.node.newXObject('Im', refs.get(d.assetId) as PDFRef));
+      }
+    }
+    drawDesigns(
+      page,
+      sheet.designs.map((design) => ({ design, name: names.get(design.assetId) as PDFName })),
+      opts,
+    );
+  }
   return doc.save();
 }

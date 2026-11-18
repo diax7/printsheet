@@ -29,7 +29,15 @@ export const DEFAULT_PREFS: Prefs = {
   grid: false,
   allowRotate: true,
   presets: [],
-  exportOptions: { format: 'pdf', color: 'rgb', pngDpi: 300, pdfMaxDpi: 'original', mirror: false },
+  exportOptions: {
+    format: 'pdf',
+    color: 'rgb',
+    pngDpi: 300,
+    pdfMaxDpi: 'original',
+    pdfCompression: 'compact',
+    splitOutput: 'zip',
+    mirror: false,
+  },
 };
 
 function isPreset(v: unknown): v is Preset {
@@ -80,6 +88,10 @@ export function loadPrefs(): Prefs {
         ? (e['pngDpi'] as ExportOptions['pngDpi'])
         : d.pngDpi,
       pdfMaxDpi: e['pdfMaxDpi'] === 300 || e['pdfMaxDpi'] === 600 ? e['pdfMaxDpi'] : 'original',
+      pdfCompression: e['pdfCompression'] === 'lossless' ? 'lossless' : d.pdfCompression,
+      splitOutput: (['zip', 'pdf-pages', 'files'] as const).includes(e['splitOutput'] as never)
+        ? (e['splitOutput'] as ExportOptions['splitOutput'])
+        : d.splitOutput,
       mirror: e['mirror'] === true,
     },
   };

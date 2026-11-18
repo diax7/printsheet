@@ -5,9 +5,10 @@
  *
  * Every import is re-encoded through a canvas as an 8-bit sRGB PNG on purpose: PNGs with colour
  * profiles, gamma chunks or 16-bit channels then decode identically for the screen, the PNG
- * export and the PDF export. (Cost: JPGs grow into larger PNGs; very faint pixels round.)
+ * export and the PDF export. (Cost: JPGs grow into larger PNGs; very faint pixels round.) A
+ * near-invisible haze (alpha 10 or less) is cleared before trimming (see FAINT_ALPHA_MAX).
  */
-import { hasTransparentPixelsIn, trimBounds } from '@/image/trim';
+import { clearFaintPixels, hasTransparentPixelsIn, trimBounds } from '@/image/trim';
 
 export interface ImportRequest {
   id: number;
@@ -65,14 +66,18 @@ async function importOne(
     const ctx = full.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('This browser cannot process images here.');
     ctx.drawImage(bitmap, 0, 0);
-    const pixels = ctx.getImageData(0, 0, width, height).data;
+    const image = ctx.getImageData(0, 0, width, height);
+    const pixels = image.data;
+    // A near-invisible haze would stop the trim and could print as white dust: clear it first.
+    clearFaintPixels(pixels);
     const box = trimBounds(pixels, width, height);
     if (!box) throw new Error(`"${name}" is fully transparent, so there is nothing to print.`);
 
     const trimmed = new OffscreenCanvas(box.w, box.h);
     const tctx = trimmed.getContext('2d');
     if (!tctx) throw new Error('This browser cannot process images here.');
-    tctx.drawImage(bitmap, -box.x, -box.y);
+    // Draw from the cleaned pixels (not the original bitmap), so the haze inside the box goes too.
+    tctx.putImageData(image, -box.x, -box.y, box.x, box.y, box.w, box.h);
     // Check transparency on the pixels already read, instead of copying the crop again.
     const hasTransparency = hasTransparentPixelsIn(pixels, width, box);
     // Free the full-size canvas before encoding: large images hold several copies at once.

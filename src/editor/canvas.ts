@@ -21,7 +21,9 @@ import {
   type FabricObject,
   type TMat2D,
 } from 'fabric';
-import { corners, footprint, sheetLengthMm, contentLengthMm, type Box } from '@/model/geometry';
+import { corners, footprint, type Box } from '@/model/geometry';
+import { bandOf, pageCount, MAX_PAGES } from '@/model/pages';
+import { drawMat, drawSheets, viewLengthMm } from '@/editor/film';
 import { normalizeAngle, updateDesigns } from '@/model/ops';
 import { formatCm } from '@/model/units';
 import type { Design, Sheet } from '@/model/types';
@@ -59,14 +61,14 @@ interface Guide {
   at: number;
 }
 
-/** How much of the sheet the scroll area shows: the sheet plus room to drag designs below. */
-function viewLengthMm(sheet: Sheet): number {
-  const content = contentLengthMm(sheet.designs);
-  const base =
-    sheet.settings.lengthMode === 'fixed'
-      ? Math.max(sheet.settings.fixedLengthMm, content)
-      : content;
-  return Math.max(base + 300, 600);
+/** Horizontal edges a drag snaps to: the top, and each sheet's top and end in a split job. */
+function sheetEdges(sheet: Sheet): number[] {
+  if (sheet.settings.layout === 'single') return [0];
+  const count = Math.min(pageCount(sheet) + 1, MAX_PAGES);
+  return Array.from({ length: count }, (_, i) => bandOf(i, sheet.settings)).flatMap((b) => [
+    b.top,
+    b.bottom,
+  ]);
 }
 
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
@@ -379,7 +381,10 @@ export function mountCanvas(
       sheet.settings.sheetWidthMm,
       ...others.flatMap((o) => [o.minX, o.maxX, o.minX - gap, o.maxX + gap]),
     ];
-    const ys = [0, ...others.flatMap((o) => [o.minY, o.maxY, o.minY - gap, o.maxY + gap])];
+    const ys = [
+      ...sheetEdges(sheet),
+      ...others.flatMap((o) => [o.minY, o.maxY, o.minY - gap, o.maxY + gap]),
+    ];
     const snap = (edges: number[], candidates: number[]): { delta: number; at: number } | null => {
       let best: { delta: number; at: number } | null = null;
       for (const edge of edges) {
@@ -435,131 +440,21 @@ export function mountCanvas(
 
   function drawBackground(ctx: CanvasRenderingContext2D): void {
     const { sheet } = store.get();
-    const p = prefs();
     const v = canvas.viewportTransform;
-    const s = v[0];
-    const w = canvas.getWidth();
-    const h = canvas.getHeight();
     ctx.save();
     ctx.setTransform(canvas.getRetinaScaling(), 0, 0, canvas.getRetinaScaling(), 0, 0);
-
-    // Cutting mat with a centimetre grid that follows the sheet.
-    ctx.fillStyle = '#2f5d50';
-    ctx.fillRect(0, 0, w, h);
-    const step = 10 * s;
-    if (step >= 6) {
-      ctx.lineWidth = 1;
-      const startX = v[4] % step;
-      const startY = v[5] % step;
-      for (let x = startX, i = Math.round((startX - v[4]) / step); x < w; x += step, i++) {
-        ctx.strokeStyle = i % 5 === 0 ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.06)';
-        ctx.beginPath();
-        ctx.moveTo(Math.round(x) + 0.5, 0);
-        ctx.lineTo(Math.round(x) + 0.5, h);
-        ctx.stroke();
-      }
-      for (let y = startY, i = Math.round((startY - v[5]) / step); y < h; y += step, i++) {
-        ctx.strokeStyle = i % 5 === 0 ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.06)';
-        ctx.beginPath();
-        ctx.moveTo(0, Math.round(y) + 0.5);
-        ctx.lineTo(w, Math.round(y) + 0.5);
-        ctx.stroke();
-      }
-    }
-
-    // The film.
-    const sheetW = sheet.settings.sheetWidthMm * s;
-    const filmLength = viewLengthMm(sheet);
-    const x0 = v[4];
-    const y0 = v[5];
-    ctx.shadowColor = 'rgba(0,0,0,0.35)';
-    ctx.shadowBlur = 18;
-    ctx.shadowOffsetY = 4;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(x0, y0, sheetW, filmLength * s);
-    ctx.shadowColor = 'transparent';
-    if (p.background === 'transparent') {
-      const cell = 8;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x0, y0, sheetW, filmLength * s);
-      ctx.clip();
-      ctx.fillStyle = '#d9ddd6';
-      const firstRow = Math.max(0, Math.floor(-y0 / cell));
-      const lastRow = Math.ceil((h - y0) / cell);
-      const cols = Math.ceil(sheetW / cell);
-      for (let r = firstRow; r <= lastRow; r++) {
-        for (let c = r % 2; c < cols; c += 2)
-          ctx.fillRect(x0 + c * cell, y0 + r * cell, cell, cell);
-      }
-      ctx.restore();
-    } else {
-      ctx.fillStyle =
-        p.background === 'white' ? '#ffffff' : p.background === 'black' ? '#000000' : p.customColor;
-      ctx.fillRect(x0, y0, sheetW, filmLength * s);
-    }
-
-    if (p.grid && step >= 4) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x0, y0, sheetW, filmLength * s);
-      ctx.clip();
-      const dark = p.background === 'black';
-      for (let mm = 10; mm < sheet.settings.sheetWidthMm; mm += 10) {
-        ctx.strokeStyle = dark
-          ? mm % 50
-            ? 'rgba(255,255,255,0.12)'
-            : 'rgba(255,255,255,0.25)'
-          : mm % 50
-            ? 'rgba(0,80,110,0.12)'
-            : 'rgba(0,80,110,0.28)';
-        ctx.beginPath();
-        ctx.moveTo(Math.round(x0 + mm * s) + 0.5, Math.max(y0, 0));
-        ctx.lineTo(Math.round(x0 + mm * s) + 0.5, Math.min(y0 + filmLength * s, h));
-        ctx.stroke();
-      }
-      for (let mm = 10; mm < filmLength; mm += 10) {
-        const y = y0 + mm * s;
-        if (y < 0 || y > h) continue;
-        ctx.strokeStyle = dark
-          ? mm % 50
-            ? 'rgba(255,255,255,0.12)'
-            : 'rgba(255,255,255,0.25)'
-          : mm % 50
-            ? 'rgba(0,80,110,0.12)'
-            : 'rgba(0,80,110,0.28)';
-        ctx.beginPath();
-        ctx.moveTo(x0, Math.round(y) + 0.5);
-        ctx.lineTo(x0 + sheetW, Math.round(y) + 0.5);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // Where the film is cut: the end of the content (auto) or the fixed length.
-    const cutMm = sheetLengthMm(sheet);
-    if (cutMm > 0) {
-      const y = y0 + cutMm * s;
-      ctx.save();
-      ctx.strokeStyle = sheet.settings.lengthMode === 'fixed' ? '#d6338a' : ACCENT;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([8, 5]);
-      ctx.beginPath();
-      ctx.moveTo(x0 - 16, Math.round(y) + 0.5);
-      ctx.lineTo(x0 + sheetW + 16, Math.round(y) + 0.5);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      const label = `${(cutMm / 1000).toFixed(2)} m`;
-      ctx.font = '600 11px Archivo, system-ui, sans-serif';
-      const tw = ctx.measureText(label).width;
-      ctx.fillStyle = ctx.strokeStyle;
-      ctx.beginPath();
-      ctx.roundRect(x0 + sheetW + 18, y - 9, tw + 12, 18, 4);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, x0 + sheetW + 24, y + 4);
-      ctx.restore();
-    }
+    const view = {
+      ctx,
+      x0: v[4],
+      y0: v[5],
+      s: v[0],
+      w: canvas.getWidth(),
+      h: canvas.getHeight(),
+      prefs: prefs(),
+      sheetWidthMm: sheet.settings.sheetWidthMm,
+    };
+    drawMat(view);
+    drawSheets(view, sheet);
     ctx.restore();
   }
 

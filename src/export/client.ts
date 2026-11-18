@@ -3,10 +3,11 @@
  */
 // oxlint-disable-next-line import/default -- Vite's ?worker import is a virtual module with a default export.
 import ExportWorker from '@/export/worker?worker&inline';
-import type { ExportMessage, ExportRequest } from '@/export/worker';
+import type { ExportFile, ExportMessage, ExportRequest } from '@/export/worker';
 
 export interface RunningExport {
-  result: Promise<Blob>;
+  /** The finished files: one, or one per sheet when separate files were chosen. */
+  result: Promise<ExportFile[]>;
   cancel(): void;
 }
 
@@ -22,22 +23,22 @@ export function startExport(
   onProgress: (done: number, total: number, stage: string) => void,
 ): RunningExport {
   const worker = new ExportWorker();
-  let settle: { resolve: (b: Blob) => void; reject: (e: Error) => void } | null = null;
-  const result = new Promise<Blob>((resolve, reject) => {
+  let settle: { resolve: (f: ExportFile[]) => void; reject: (e: Error) => void } | null = null;
+  const result = new Promise<ExportFile[]>((resolve, reject) => {
     settle = { resolve, reject };
   });
-  const finish = (outcome: Blob | Error): void => {
+  const finish = (outcome: ExportFile[] | Error): void => {
     if (!settle) return;
     const s = settle;
     settle = null;
     worker.terminate();
-    if (outcome instanceof Blob) s.resolve(outcome);
-    else s.reject(outcome);
+    if (outcome instanceof Error) s.reject(outcome);
+    else s.resolve(outcome);
   };
   worker.addEventListener('message', (event: MessageEvent<ExportMessage>) => {
     const message = event.data;
     if (message.type === 'progress') onProgress(message.done, message.total, message.stage);
-    else if (message.type === 'done') finish(message.blob);
+    else if (message.type === 'done') finish(message.files);
     else finish(new Error(message.message));
   });
   // An error event from a failed worker can carry no message at all.

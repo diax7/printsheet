@@ -3,6 +3,7 @@
  * and pushed through the browser's zlib compressor, and only compressed bytes are kept. That lets
  * a 5 m sheet at 600 DPI be written without ever holding its raw pixels (gigabytes) in memory.
  */
+import { filterPaeth } from '@/export/png-filter';
 
 export interface EncodePngOptions {
   width: number;
@@ -72,20 +73,6 @@ function physicalSize(dpi: number): Uint8Array {
   return data;
 }
 
-/** Prefix every row with filter type 0 ("none"), as PNG requires. */
-function filterRows(
-  pixels: Uint8ClampedArray,
-  width: number,
-  rows: number,
-): Uint8Array<ArrayBuffer> {
-  const stride = width * 4;
-  const out = new Uint8Array(rows * (stride + 1));
-  for (let r = 0; r < rows; r++) {
-    out.set(pixels.subarray(r * stride, (r + 1) * stride), r * (stride + 1) + 1);
-  }
-  return out;
-}
-
 /** Collects compressed bytes and cuts them into IDAT chunks. */
 async function collectIdat(
   readable: ReadableStream<Uint8Array>,
@@ -127,6 +114,8 @@ export async function encodePng(options: EncodePngOptions): Promise<Blob> {
   const idat = collectIdat(compressor.readable);
 
   try {
+    // The filter of a strip's first row looks at the last row of the strip before it.
+    let above: Uint8ClampedArray | null = null;
     for (let y0 = 0; y0 < height; y0 += rowsPerStrip) {
       const rows = Math.min(rowsPerStrip, height - y0);
       const pixels = await renderStrip(y0, rows);
@@ -135,7 +124,8 @@ export async function encodePng(options: EncodePngOptions): Promise<Blob> {
           `Rendered strip at row ${y0} has ${pixels.length} bytes, expected ${width * rows * 4}`,
         );
       }
-      await writer.write(filterRows(pixels, width, rows));
+      await writer.write(filterPaeth(pixels, width, rows, 4, above));
+      above = pixels.slice((rows - 1) * width * 4);
       onProgress?.(y0 + rows, height);
     }
     await writer.close();

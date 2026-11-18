@@ -102,28 +102,39 @@ export async function typeField(page: Page, selector: string, value: string): Pr
   await input.blur();
 }
 
-/** Open the export dialog, set options by clicking, export, and return the download. */
-export async function exportFile(
-  page: Page,
-  options: {
-    format: 'pdf' | 'png';
-    color?: 'rgb' | 'cmyk';
-    dpi?: number;
-    quality?: 'original' | '600' | '300';
-    mirror?: boolean;
-  },
-): Promise<Download> {
+export interface ExportChoices {
+  format: 'pdf' | 'png';
+  color?: 'rgb' | 'cmyk';
+  dpi?: number;
+  quality?: 'original' | '600' | '300';
+  compression?: 'compact' | 'lossless';
+  split?: 'zip' | 'pdf-pages' | 'files';
+  mirror?: boolean;
+}
+
+/** Open the export dialog and set the options by clicking, as a person would. */
+export async function chooseExport(page: Page, options: ExportChoices): Promise<void> {
   await page.click('#export');
   const dialog = page.locator('#export-dialog');
   await expect(dialog).toBeVisible();
   await dialog.locator(`[data-group="format"][data-value="${options.format}"]`).click();
   if (options.color)
     await dialog.locator(`[data-group="color"][data-value="${options.color}"]`).click();
+  if (options.compression)
+    await dialog.locator(`[data-group="compression"][data-value="${options.compression}"]`).click();
   if (options.dpi) await dialog.locator(`[data-group="dpi"][data-value="${options.dpi}"]`).click();
   if (options.quality)
     await dialog.locator(`[data-group="quality"][data-value="${options.quality}"]`).click();
-  const mirror = dialog.locator('#export-mirror');
-  if ((await mirror.isChecked()) !== Boolean(options.mirror)) await mirror.click();
+  if (options.split)
+    await dialog.locator(`[data-group="split"][data-value="${options.split}"]`).click();
+  const mirror = options.mirror ? 'mirrored' : 'regular';
+  await dialog.locator(`[data-group="mirror"][data-value="${mirror}"]`).click();
+}
+
+/** Open the export dialog, set options by clicking, export, and return the download. */
+export async function exportFile(page: Page, options: ExportChoices): Promise<Download> {
+  await chooseExport(page, options);
+  const dialog = page.locator('#export-dialog');
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 110_000 }),
     dialog.locator('#export-go').click(),
@@ -137,4 +148,16 @@ export async function downloadBytes(download: Download): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(chunk as Buffer);
   return Buffer.concat(chunks);
+}
+
+/**
+ * Click Arrange and wait until its new layout is committed. Arrange commits after two frames and
+ * then says "Arranged"; an earlier "Arranged" message is waited out first, so it cannot be
+ * mistaken for this one.
+ */
+export async function arrange(page: Page): Promise<void> {
+  const done = page.locator('.toast', { hasText: 'Arranged' });
+  await expect(done).toHaveCount(0, { timeout: 10_000 });
+  await page.click('#arrange');
+  await expect(done).toHaveCount(1);
 }

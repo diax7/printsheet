@@ -4,10 +4,12 @@
  * file cannot put the editor in an impossible state.
  */
 import {
+  DEFAULT_SETTINGS,
   MAX_DESIGNS,
   MAX_SHEET_LENGTH_MM,
   MAX_SIZE_MM,
   MAX_WIDTH_MM,
+  MIN_PAGE_LENGTH_MM,
   MIN_SIZE_MM,
   MIN_WIDTH_MM,
   type Design,
@@ -55,12 +57,29 @@ export function validateSettings(v: unknown): Settings {
   if (lengthMode !== 'auto' && lengthMode !== 'fixed') {
     throw new InvalidSheetError('length mode must be auto or fixed');
   }
+  // Keys added after the first release are optional: files saved before them get the defaults.
+  const added = (key: keyof Settings): unknown => v[key] ?? DEFAULT_SETTINGS[key];
   return {
     sheetWidthMm: num(v['sheetWidthMm'], 'sheet width', MIN_WIDTH_MM, MAX_WIDTH_MM),
     lengthMode,
     fixedLengthMm: num(v['fixedLengthMm'], 'fixed length', 10, MAX_SHEET_LENGTH_MM),
     gapMm: num(v['gapMm'], 'cutting gap', 0, 100),
+    layout: oneOf(added('layout'), 'layout', ['single', 'split'] as const),
+    pageLengthMm: num(
+      added('pageLengthMm'),
+      'sheet length',
+      MIN_PAGE_LENGTH_MM,
+      MAX_SHEET_LENGTH_MM,
+    ),
+    lastPage: oneOf(added('lastPage'), 'last sheet', ['trim', 'full'] as const),
+    spacing: oneOf(added('spacing'), 'spacing', ['box', 'shape'] as const),
   };
+}
+
+function oneOf<T extends string>(v: unknown, what: string, allowed: readonly T[]): T {
+  if (!allowed.includes(v as T))
+    throw new InvalidSheetError(`${what} must be ${allowed.join(' or ')}`);
+  return v as T;
 }
 
 function validateDesign(v: unknown, index: number, assetIds: ReadonlySet<string>): Design {

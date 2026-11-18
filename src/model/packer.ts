@@ -6,8 +6,12 @@
  * "active" boxes, those whose extent (grown by the gap) overlaps the new box's vertical band, so
  * each row only looks at its neighbours. Within a row the active boxes are swept in x to find the
  * leftmost opening wide enough. The first opening found is the answer.
+ *
+ * With bands (the sheets of a split job), rows also start at each sheet's top, a box never
+ * crosses a sheet's end, and boxes on other sheets are ignored.
  */
 import type { Box } from '@/model/geometry';
+import type { Band } from '@/model/pages';
 
 const EPS = 1e-6;
 
@@ -28,14 +32,23 @@ export class Packer {
   /** Boxes sorted by top edge. */
   private readonly byTop: Box[] = [];
   /** Candidate rows, ascending. */
-  private readonly rows: number[] = [0];
+  private readonly rows: number[];
 
   constructor(
     private readonly width: number,
     private readonly gap: number,
     initial: readonly Box[] = [],
+    private readonly bands: readonly Band[] | null = null,
   ) {
+    this.rows = bands ? bands.map((b) => b.top) : [0];
     for (const box of initial) this.add(box);
+  }
+
+  /** The band a box starting at row y may use, or null when it may not start there. */
+  private bandFor(y: number, h: number): Band | null | undefined {
+    if (!this.bands) return null;
+    const band = this.bands.find((b) => y >= b.top - EPS && y < b.bottom);
+    return band && y + h <= band.bottom + EPS ? band : undefined;
   }
 
   add(box: Box): void {
@@ -53,13 +66,18 @@ export class Packer {
     for (const y of this.rows) {
       if (y - previousRow < EPS) continue;
       previousRow = y;
+      const band = this.bandFor(y, h);
+      if (band === undefined) continue;
       const bandBottom = y + h + gap;
       while (next < this.byTop.length && (this.byTop[next] as Box).minY < bandBottom - EPS) {
         active.push(this.byTop[next] as Box);
         next++;
       }
       active = active.filter((b) => b.maxY + gap > y + EPS);
-      const x = leftmostOpening(active, w, this.width, gap);
+      const neighbours = band
+        ? active.filter((b) => b.maxY > band.top + EPS && b.minY < band.bottom - EPS)
+        : active;
+      const x = leftmostOpening(neighbours, w, this.width, gap);
       if (x !== null) return { minX: x, minY: y, maxX: x + w, maxY: y + h };
     }
     return null;

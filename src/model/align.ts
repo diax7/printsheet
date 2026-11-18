@@ -1,9 +1,10 @@
 /**
  * Align and distribute by footprint (the space a design takes on the film), so rotated designs
- * line up by what is actually printed. A single design aligns to the sheet; several align to
- * their combined bounds. Locked designs never move but still count as reference.
+ * line up by what is actually printed. A single design aligns to the sheet (in a split job, to
+ * its own sheet); several align to their combined bounds. Locked designs never move but still count as reference.
  */
 import { contentLengthMm, footprint, unionFootprint, type Box } from '@/model/geometry';
+import { bandHolding } from '@/model/pages';
 import type { Design, Sheet } from '@/model/types';
 
 export type AlignEdge = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
@@ -26,20 +27,23 @@ function shift(d: Design, box: Box, edge: AlignEdge, ref: Box): Design {
   }
 }
 
+/** What a single design aligns to: the whole sheet, or its own sheet in a split job. */
+function sheetBox(sheet: Sheet, d: Design): Box {
+  const s = sheet.settings;
+  if (s.layout === 'split') {
+    const band = bandHolding(d, s);
+    return { minX: 0, minY: band.top, maxX: s.sheetWidthMm, maxY: band.bottom };
+  }
+  const maxY = s.lengthMode === 'fixed' ? s.fixedLengthMm : contentLengthMm(sheet.designs);
+  return { minX: 0, minY: 0, maxX: s.sheetWidthMm, maxY };
+}
+
 export function align(sheet: Sheet, ids: readonly string[], edge: AlignEdge): Sheet {
   const wanted = new Set(ids);
   const selected = sheet.designs.filter((d) => wanted.has(d.id));
   if (selected.length === 0) return sheet;
-  const sheetBox: Box = {
-    minX: 0,
-    minY: 0,
-    maxX: sheet.settings.sheetWidthMm,
-    maxY:
-      sheet.settings.lengthMode === 'fixed'
-        ? sheet.settings.fixedLengthMm
-        : Math.max(contentLengthMm(sheet.designs), 0),
-  };
-  const ref = selected.length === 1 ? sheetBox : (unionFootprint(selected) as Box);
+  const first = selected[0] as Design;
+  const ref = selected.length === 1 ? sheetBox(sheet, first) : (unionFootprint(selected) as Box);
   return {
     ...sheet,
     designs: sheet.designs.map((d) =>

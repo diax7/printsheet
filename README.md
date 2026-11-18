@@ -15,6 +15,9 @@ them).
   width presets (for example "Shop roll, 57 cm").
 - **The film length, always in view.** The sheet grows as you add designs and the left panel shows
   the meters you need, like `1.37 m`. Or set a fixed length when you buy an exact amount.
+- **Split into sheets.** Cut a long job into sheets of a set length, for example 1 m each. Every
+  sheet shows as its own canvas, no design may cross a split (one click moves those that do onto
+  a sheet), and the last sheet is trimmed to its designs or kept full length, as you choose.
 - **Real sizes everywhere.** Select a design and its print size shows on it (`30.0 × 50.0 cm`),
   live while you resize. Type an exact width or height. The list shows every design with its size.
 - **Empty borders trimmed.** Transparent space around an image is cut off when you add it, so the
@@ -49,13 +52,16 @@ them).
 | --- | --- | --- |
 | Format | PDF, PNG | Ask your print shop. Many DTF shops ask for PNG. |
 | Colour (PDF) | RGB, CMYK | Use **RGB** unless told otherwise. The printer's own software (its RIP) converts colours with that printer's profile. CMYK here uses a standard press profile (FOGRA39), not your printer's. |
+| File size (PDF, RGB) | Compact, Lossless | **Compact** (the default) stores colours as high-quality JPEG (quality 92, full colour resolution) and keeps transparency and every edge exact: about a quarter of the lossless size, easy to send by WhatsApp or email. **Lossless** keeps every pixel. CMYK is always lossless. |
 | Resolution (PNG) | 150, 300, 360, 600 DPI | 300 is the usual print quality. The DPI is written into the file, so it opens at the right size. |
-| Image quality (PDF) | Original, up to 600 DPI, up to 300 DPI | The PDF keeps every image at full resolution by default. Lower it only to make a very large file smaller. |
-| Mirror | On, off | DTF is printed mirrored, but the printer's software usually does it. Only turn it on if your shop asks. |
+| Image quality (PDF) | Original, up to 600 DPI, up to 300 DPI | The PDF keeps every image at its full resolution by default. A limit only shrinks images placed above it, so it helps only when your images are sharper than the print needs. |
+| Mirror | Regular, Mirrored | DTF is printed mirrored, but the printer's software usually does it. Only choose Mirrored if your shop asks. A small preview shows the file the way it will come out. |
+| Sheets (split jobs) | One zip, One PDF, Separate files | One zip holds a file per sheet (easiest to send). One PDF has a page per sheet. Separate files gives a download button per sheet. Empty sheets are left out. |
 
 The PDF is exactly the sheet size, holds each image once (however many copies you placed), and
-keeps transparency, so only your designs get ink. One sheet can be up to 5 m long (the PDF limit);
-for a longer job, make a second sheet.
+keeps transparency exact, so only your designs get ink. Lossless images and PNG files use PNG row
+filters, so they are about a third smaller than plain compression with the same pixels. One file
+can be up to 5 m long (the PDF limit); for a longer job, choose **Split into sheets**.
 
 ## Keyboard shortcuts
 

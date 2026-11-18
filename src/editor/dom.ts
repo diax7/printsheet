@@ -102,19 +102,48 @@ export function toast(
   message: string,
   kind: 'info' | 'error' = 'info',
   timeoutMs = kind === 'error' ? 9000 : 3500,
+  action?: { label: string; run: () => void },
 ): void {
   const host = byId('toasts');
   const close = el('button', { type: 'button', 'aria-label': 'Dismiss' }, icon('close'));
+  const actionButton = action
+    ? el('button', { type: 'button', class: 'toast-action', text: action.label })
+    : null;
   const item = el(
     'div',
     { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' },
     el('span', { text: message }),
+    ...(actionButton ? [actionButton] : []),
     close,
   );
   const remove = (): void => item.remove();
   close.addEventListener('click', remove);
+  actionButton?.addEventListener('click', () => {
+    remove();
+    action?.run();
+  });
   host.append(item);
   window.setTimeout(remove, timeoutMs);
+}
+
+/** Commit a typed number when it is in range; mark the field invalid otherwise. */
+export function bindNumber(
+  input: HTMLInputElement,
+  min: number,
+  max: number,
+  apply: (value: number) => void,
+): void {
+  input.addEventListener('change', () => {
+    const value = readNumber(input);
+    if (value === null || value < min || value > max) {
+      input.setAttribute('aria-invalid', 'true');
+      input.title = `Enter a number from ${min} to ${max}`;
+      return;
+    }
+    input.removeAttribute('aria-invalid');
+    input.title = '';
+    apply(value);
+  });
 }
 
 /** Read a number input; null when it is empty or not a number. */

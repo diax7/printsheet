@@ -17,6 +17,7 @@ import {
   type UseStore,
 } from 'idb-keyval';
 import { validateSheetLenient } from '@/model/validate';
+import { formatVersion, PROJECT_VERSION } from '@/store/project-file';
 import type { ImageAsset, Sheet } from '@/model/types';
 
 const DB = 'printsheet';
@@ -90,7 +91,7 @@ export function createAutosave(
         ]);
     }
     if (fresh.length) await setMany(fresh, store());
-    await set(SHEET_KEY, { version: 1, sheet }, store());
+    await set(SHEET_KEY, { version: formatVersion(sheet), sheet }, store());
     if (!mayDelete) return;
     const stale = [...stored].filter(
       (k) => k.startsWith(ASSET_PREFIX) && !keep.has(k.slice(ASSET_PREFIX.length)),
@@ -129,6 +130,10 @@ export function createAutosave(
         | { version?: number; sheet?: unknown }
         | undefined;
       if (!stored?.sheet) return null;
+      // A newer build may have saved a format this one would misread; refuse it, untouched.
+      if ((stored.version ?? 1) > PROJECT_VERSION) {
+        throw new Error('it was saved by a newer version of PrintSheet. Reload the page to update');
+      }
       const assets = new Map<string, ImageAsset>();
       for (const key of await keys(store())) {
         const k = String(key);

@@ -4,9 +4,10 @@
  * Footprint boxes are compared, which is conservative for rotated designs (never closer than the
  * gap). Designs not being arranged (locked or unselected) are fixed obstacles.
  */
-import { contentLengthMm, footprint, type Box } from '@/model/geometry';
+import { footprint, type Box } from '@/model/geometry';
 import { normalizeAngle } from '@/model/ops';
 import { Packer } from '@/model/packer';
+import { bandsFor, fallbackTop, filmLengthMm, offSheetReason } from '@/model/pages';
 import type { Design, Sheet } from '@/model/types';
 
 export interface ArrangeOptions {
@@ -42,7 +43,7 @@ function fill(
   rotate: boolean,
 ): Design[] {
   const { sheetWidthMm: width, gapMm: gap } = sheet.settings;
-  const packer = new Packer(width, gap, fixed.map(footprint));
+  const packer = new Packer(width, gap, fixed.map(footprint), bandsFor(sheet.settings));
   let lowest = Math.max(0, ...fixed.map((d) => footprint(d).maxY + gap));
   const order = items
     .map((d, index) => ({ d, index, size: sizeOf(d) }))
@@ -68,11 +69,15 @@ function fill(
         best = { design: option, spot };
       }
     }
-    // A design wider than the sheet in every orientation is placed at the left edge below
-    // everything, where the "outside" warning will point it out.
+    // A design that fits nowhere is placed at the left edge below everything (one long sheet)
+    // or at the top of the first sheet after those in use, where a warning points it out.
+    const fallback =
+      sheet.settings.layout === 'split'
+        ? fallbackTop({ ...sheet, designs: [...fixed, ...placed.values()] })
+        : lowest;
     const result = best
       ? moveTo(best.design, best.spot)
-      : moveTo(d, { minX: 0, minY: lowest, maxX: 0, maxY: 0 });
+      : moveTo(d, { minX: 0, minY: fallback, maxX: 0, maxY: 0 });
     const box = footprint(result);
     packer.add(box);
     lowest = Math.max(lowest, box.maxY + gap);
@@ -98,11 +103,16 @@ export function autoArrange(
 
   const candidates = [fill(moving, fixed, sheet, false)];
   if (options.allowRotate) candidates.push(fill(moving, fixed, sheet, true));
-  // Fitting inside the width matters more than length: a short layout that leaves a design
-  // hanging off the edge is not a valid print.
+  // Fitting matters more than length: a short layout that leaves a design hanging off the edge,
+  // or on no sheet of a split job, is not a valid print.
   const overflowOf = (placed: Design[]): number =>
-    placed.filter((d) => footprint(d).maxX > sheet.settings.sheetWidthMm + EPS).length;
-  const lengthOf = (placed: Design[]): number => contentLengthMm([...fixed, ...placed]);
+    placed.filter(
+      (d) =>
+        footprint(d).maxX > sheet.settings.sheetWidthMm + EPS ||
+        (sheet.settings.layout === 'split' && offSheetReason(d, sheet.settings) !== null),
+    ).length;
+  const lengthOf = (placed: Design[]): number =>
+    filmLengthMm({ ...sheet, designs: [...fixed, ...placed] });
   const better = (a: Design[], b: Design[]): Design[] => {
     const overflow = overflowOf(b) - overflowOf(a);
     if (overflow !== 0) return overflow < 0 ? b : a;
@@ -133,4 +143,23 @@ export function placeCopies(
     sheet: { ...sheet, designs: [...sheet.designs, ...placed] },
     newIds: placed.map((d) => d.id),
   };
+}
+
+/**
+ * Moves the given designs that are on no sheet of a split job (across a split) into the first
+ * free spots, leaving everything else where it is. The one-click fix after splitting a layout
+ * placed by hand. Locked designs stay put.
+ */
+export function moveOntoSheets(sheet: Sheet, ids: readonly string[]): Sheet {
+  const wanted = new Set(ids);
+  const isMoving = (d: Design): boolean =>
+    wanted.has(d.id) && !d.locked && offSheetReason(d, sheet.settings) !== null;
+  const moving = sheet.designs.filter(isMoving);
+  if (moving.length === 0) return sheet;
+  const fixed = sheet.designs.filter((d) => !isMoving(d));
+  const placed = fill(moving, fixed, sheet, false);
+  // Nothing found room (every sheet full): leave the sheet as it was, so no empty undo step.
+  if (placed.every((d) => offSheetReason(d, sheet.settings) !== null)) return sheet;
+  const byId = new Map(placed.map((d) => [d.id, d]));
+  return { ...sheet, designs: sheet.designs.map((d) => byId.get(d.id) ?? d) };
 }

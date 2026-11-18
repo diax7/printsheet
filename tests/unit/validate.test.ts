@@ -7,7 +7,12 @@ import { describe, expect, it } from 'vitest';
 import { initialSize } from '@/model/geometry';
 import { placeCopies, MAX_COPIES } from '@/model/arrange';
 import { resizeKeepingCorner, roomForDesigns } from '@/model/ops';
-import { validateSheet, validateSheetLenient } from '@/model/validate';
+import {
+  InvalidSheetError,
+  validateSettings,
+  validateSheet,
+  validateSheetLenient,
+} from '@/model/validate';
 import {
   DEFAULT_SETTINGS,
   MAX_DESIGNS,
@@ -146,5 +151,34 @@ describe('validateSheetLenient', () => {
     expect(() =>
       validateSheetLenient({ settings: { ...settings, sheetWidthMm: 1e9 }, designs: [] }, ids),
     ).toThrow();
+  });
+});
+
+describe('validateSettings', () => {
+  const old = { sheetWidthMm: 580, lengthMode: 'auto', fixedLengthMm: 1000, gapMm: 5 };
+
+  it('opens settings saved before split sheets with the defaults', () => {
+    expect(validateSettings(old)).toEqual({
+      ...old,
+      layout: 'single',
+      pageLengthMm: 1000,
+      lastPage: 'trim',
+      spacing: 'box',
+    });
+  });
+
+  it('keeps valid split settings', () => {
+    const v = { ...old, layout: 'split', pageLengthMm: 500, lastPage: 'full', spacing: 'shape' };
+    expect(validateSettings(v)).toEqual(v);
+  });
+
+  it.each([
+    ['layout', 'pages'],
+    ['pageLengthMm', 50],
+    ['pageLengthMm', 5001],
+    ['lastPage', 'cut'],
+    ['spacing', 'pixels'],
+  ])('refuses %s = %s', (key, value) => {
+    expect(() => validateSettings({ ...old, [key]: value })).toThrow(InvalidSheetError);
   });
 });

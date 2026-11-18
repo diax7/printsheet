@@ -3,6 +3,37 @@
  * thread and workers alike.
  */
 
+/**
+ * Pixels at or below this alpha (10 of 255, under 4% visible) are cleared on import. Background
+ * removal and AI tools often leave a near-invisible haze around a design; it cannot be seen on
+ * screen, but it stops the trim (the design keeps a huge empty box) and a DTF printer can lay
+ * white ink under it, printing a dusty halo. Owner's choice (2026-11-18): clean it automatically.
+ */
+export const FAINT_ALPHA_MAX = 10;
+
+/**
+ * Makes nearly invisible pixels fully transparent, in place.
+ *
+ * Args:
+ *   rgba: Pixels, 4 bytes each, not premultiplied.
+ *
+ * Returns:
+ *   How many pixels were cleared.
+ */
+export function clearFaintPixels(rgba: Uint8ClampedArray): number {
+  let cleared = 0;
+  for (let i = 3; i < rgba.length; i += 4) {
+    const alpha = rgba[i] ?? 0;
+    if (alpha === 0 || alpha > FAINT_ALPHA_MAX) continue;
+    rgba[i - 3] = 0;
+    rgba[i - 2] = 0;
+    rgba[i - 1] = 0;
+    rgba[i] = 0;
+    cleared++;
+  }
+  return cleared;
+}
+
 export interface PixelBox {
   x: number;
   y: number;

@@ -33,13 +33,30 @@ no pricing.
    600 DPI PNG within what a browser can draw; amended from 300 cm after review). **Width presets**: built-in "DTF 58 cm" (default)
    and "DTF 60 cm"; the user can save, rename and delete their own presets, remembered in the
    browser.
-2. Sheet length is **Auto** (grows with the content; default) or **Fixed** (a typed length in cm,
+2. For one long sheet, the length is **Auto** (grows with the content; default) or **Fixed** (a typed length in cm,
    for buying an exact amount of film; designs past it are flagged).
 3. cm rulers on top and side, optional 1 cm / 5 cm grid, zoom (buttons, Ctrl + wheel, Fit width,
    100%), scroll and pan for long sheets.
 4. **Workspace background**, for viewing only: transparent checkerboard (default), white, black, or
    any custom colour, remembered. The export is always transparent, because a filled background
    would print as a solid block of ink on film; the export dialog says so.
+
+4a. **Layout** (amended v4, 2026-11-18, owner's request): **One long sheet** (as before) or
+    **Split into sheets** of a set length (default 100 cm, 10 to 500 cm). The editor shows each
+    sheet as its own canvas with mat between them; a design must sit wholly on one sheet (a
+    design across a split is flagged and blocks export). Sheets are added as designs need them.
+    **Last sheet**: trimmed to its designs (default) or the full length. Arrange and Add copies
+    fill sheet 1, then sheet 2. The film total is the sum of the sheet lengths. Switching layout
+    or sheet length keeps every design on the same spot of the film (one long sheet is the
+    reference), as one undoable step; designs that end up across a split are flagged, with a
+    one-click "Move onto a sheet". The 40 mm gap between sheets in the editor is part of the
+    saved file format. Up to 50 sheets.
+4b. **Spacing** (amended v4): **Rectangles** (default, as before) or **Real shape**. Real shape
+    measures the cutting gap between the designs' ink outlines instead of their rectangles, so
+    Arrange can nest designs into each other's empty corners; the "too close" check measures the
+    same way. Outlines are conservative (never smaller than the ink), so a pair that is too
+    close is never missed: the measured gap is never larger than the real one. The side edges
+    and the splits still use each design's rectangle; Real shape only changes the gap.
 
 ### Designs
 
@@ -69,7 +86,9 @@ no pricing.
     - Outside the sheet: a footprint crossing the side edges or the top (dragging past them is
       prevented; typed sizes or rotation can still cause it).
     - Too close to cut: two designs closer than the cutting gap (setting, default 5 mm),
-      including overlapping, measured between their rotated rectangles.
+      including overlapping, measured between their rotated rectangles, or between their ink
+      outlines with Spacing set to Real shape (4b). Designs on different sheets are never too
+      close.
     - Past the fixed length (Fixed mode only).
 
 ### Saving and reuse
@@ -94,13 +113,23 @@ no pricing.
       (FOGRA39) and the dialog says it is a generic conversion; RGB lets the shop's software
       use its own printer profile.
     - PNG resolution: 150, 300 (default), 360 or 600 DPI; DPI written into the file.
+    - PDF file size (RGB): **Compact** (default; amended v3, owner's choice after a 69.6 MB
+      export) stores colour as JPEG at quality 92 with full colour resolution (4:4:4) and a
+      lossless soft mask, with the colour under transparency spread from the design so edges do
+      not darken; **Lossless** keeps every pixel. CMYK is always lossless. Lossless images and
+      PNG exports use PNG row filters (Paeth).
     - PDF image quality: keep original resolution (default), or limit to 600 or 300 DPI to make
       large files smaller.
-    - Mirror (off by default).
+    - Mirror: **Regular** (default) or **Mirrored**, with a small preview of the file as it
+      will come out (amended v4).
+    - Split sheets (amended v4): **One zip** with a file per sheet (default), **One PDF** with a
+      page per sheet (PDF only), or **Separate files**. Empty sheets are left out.
     - File name (default `printsheet-<width>cm-<length>m-<yyyy-mm-dd>`).
     - A summary line: final size in cm, length in meters, number of designs, warnings count.
-    - Export is blocked with a message when the sheet is empty or longer than 500 cm.
-17. No blank space added at the start or end. Background always transparent.
+    - Export is blocked with a message when the sheet is empty, a sheet is longer than 500 cm,
+      or a design is past the side edges or across a split.
+17. No blank space added at the start or end (except a last sheet set to Full length, by
+    choice). Background always transparent.
 
 ### Platform
 
@@ -114,7 +143,7 @@ no pricing.
 ## Non-goals
 
 - Text tool, shapes, background removal, image editing, filters.
-- Several sheets in one project.
+- Several separate projects in one file (a project is one job, split into sheets or not).
 - Accounts, cloud storage, ordering, pricing.
 - Phones and tablets (the page must not break on them, but editing targets desktop).
 - Arabic interface (possible later).
@@ -122,7 +151,8 @@ no pricing.
 ## Anti-goals
 
 - The printed size differs from the size shown on screen.
-- The export loses resolution (e.g. flattening the PDF into a low-resolution image).
+- The export loses resolution (e.g. flattening the PDF into a low-resolution image), or the
+  compact mode changes anything visible in print: edges, transparency or colour detail.
 - Images uploaded anywhere.
 - The CMYK option presented as printer-accurate.
 - Silent data loss (a failed autosave, a project file that does not reopen what was saved).
@@ -150,7 +180,7 @@ no pricing.
 ## Calls made by Claude (open to correction)
 
 DPI thresholds; new image at its 300 DPI size, shrunk to fit; length rounded up to the cm;
-500 cm cap; English UI; gap measured on rectangles not pixels; background view-only (owner's last
+500 cm cap; English UI; gap measured on rectangles by default (Real shape optional since v4); background view-only (owner's last
 word on it); auto-arrange added back because the owner asked for help organizing; Fixed length
 mode; PNG DPI and PDF quality options; MIT licence; FOGRA39 free profile; desktop Chrome/Edge as
 the supported target.

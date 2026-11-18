@@ -12,10 +12,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { decode } from 'fast-png';
+import { unzipSync } from 'fflate';
 import { PDFDocument, PDFName, PDFRawStream, PDFDict, PDFRef } from 'pdf-lib';
 import {
   addImages,
+  arrange,
   assetBytes,
+  chooseExport,
   collectErrors,
   designs,
   downloadBytes,
@@ -24,6 +27,7 @@ import {
   state,
   typeField,
 } from './helpers';
+import { splitForExport } from '@/model/pages';
 import type { Design } from '@/model/types';
 
 const DPI = 150;
@@ -189,7 +193,7 @@ async function buildCrossCheckSheet(page: Page): Promise<void> {
     if (flipY) await page.getByRole('button', { name: 'Flip vertically' }).click();
   }
   await page.keyboard.press('Escape');
-  await page.click('#arrange');
+  await arrange(page);
   await expect(page.locator('.flag.danger')).toHaveCount(0);
 }
 
@@ -257,10 +261,34 @@ test('PNG and PDF (RGB, CMYK, mirrored) match an independent rasterisation of th
   expect(pngScore).toBeGreaterThan(0.95);
   expect(wrong).toBeLessThan(pngScore - 0.1);
 
-  // 2. PDF (RGB) drawn by pdf.js vs the oracle, and its colours vs the PNG's.
+  // 2. PDF (RGB, lossless and compact) drawn by pdf.js vs the oracle, and its colours vs the
+  //    PNG's. Compact stores colour as JPEG, so its colours may differ slightly; its mask is the
+  //    same lossless mask, so its shape must match the lossless PDF pixel for pixel.
+  const colourDiff = (pdf: Raster): { mean: number; worst: number } => {
+    let diff = 0;
+    let count = 0;
+    let worst = 0;
+    for (let y = 0; y < Math.min(height, pdf.height); y++) {
+      for (let x = 0; x < Math.min(width, pdf.width); x++) {
+        const i = (y * width + x) * 4;
+        const j = (y * pdf.width + x) * 4;
+        if (pngExport.data[i + 3] !== 255 || pdf.data[j + 3] !== 255) continue;
+        for (let c = 0; c < 3; c++) {
+          const d = Math.abs((pngExport.data[i + c] ?? 0) - (pdf.data[j + c] ?? 0));
+          diff += d;
+          worst = Math.max(worst, d);
+        }
+        count += 3;
+      }
+    }
+    expect(count).toBeGreaterThan(1000);
+    return { mean: diff / count, worst };
+  };
   const pdfRgb = await renderWithPdfJs(
     page,
-    await downloadBytes(await exportFile(page, { format: 'pdf', color: 'rgb' })),
+    await downloadBytes(
+      await exportFile(page, { format: 'pdf', color: 'rgb', compression: 'lossless' }),
+    ),
   );
   const common = Math.min(height, pdfRgb.height);
   expect(Math.abs(pdfRgb.width - width)).toBeLessThanOrEqual(1);
@@ -268,21 +296,20 @@ test('PNG and PDF (RGB, CMYK, mirrored) match an independent rasterisation of th
   expect(
     iou(oracle, alphaOf(pdfRgb), Math.min(width, pdfRgb.width), common, pdfRgb.width),
   ).toBeGreaterThan(0.95);
-  let diff = 0;
-  let count = 0;
-  for (let y = 0; y < common; y++) {
-    for (let x = 0; x < Math.min(width, pdfRgb.width); x++) {
-      const i = (y * width + x) * 4;
-      const j = (y * pdfRgb.width + x) * 4;
-      if (pngExport.data[i + 3] === 255 && pdfRgb.data[j + 3] === 255) {
-        for (let c = 0; c < 3; c++)
-          diff += Math.abs((pngExport.data[i + c] ?? 0) - (pdfRgb.data[j + c] ?? 0));
-        count += 3;
-      }
-    }
-  }
-  expect(count).toBeGreaterThan(1000);
-  expect(diff / count).toBeLessThan(6);
+  expect(colourDiff(pdfRgb).mean).toBeLessThan(6);
+
+  const pdfCompact = await renderWithPdfJs(
+    page,
+    await downloadBytes(
+      await exportFile(page, { format: 'pdf', color: 'rgb', compression: 'compact' }),
+    ),
+  );
+  expect(Array.from(alphaOf(pdfCompact))).toEqual(Array.from(alphaOf(pdfRgb)));
+  const compact = colourDiff(pdfCompact);
+  expect(compact.mean).toBeLessThan(6);
+  // No dark halo: an edge pixel darkened towards the black under transparency would differ by
+  // well over 100 on a channel.
+  expect(compact.worst).toBeLessThan(60);
 
   // 3. CMYK PDF: pdf.js converts CMYK its own way, so only the shape is compared here (the
   //    channel values are checked in the unit tests).
@@ -326,6 +353,40 @@ test('PNG and PDF (RGB, CMYK, mirrored) match an independent rasterisation of th
       pdfMirror.width,
     ),
   ).toBeGreaterThan(0.95);
+});
+
+test('the default PDF is compact: JPEG colour with the exact transparency mask', async ({
+  page,
+}) => {
+  await addImages(page, ['f-shape.png']);
+  await page.click('#export');
+  await expect(page.locator('[data-group="compression"][data-value="compact"]')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.keyboard.press('Escape');
+  const doc = await PDFDocument.load(
+    await downloadBytes(await exportFile(page, { format: 'pdf' })),
+    { updateMetadata: false },
+  );
+  const xobjects = doc.context.lookup(
+    doc.getPages()[0]?.node.Resources()?.get(PDFName.of('XObject')) as PDFRef | PDFDict,
+  ) as PDFDict;
+  const [, ref] = xobjects.entries()[0] ?? [];
+  const image = doc.context.lookup(ref as PDFRef) as PDFRawStream;
+  expect(image.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('DCTDecode'));
+  const mask = doc.context.lookup(image.dict.get(PDFName.of('SMask')) as PDFRef) as PDFRawStream;
+  expect(mask.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('FlateDecode'));
+});
+
+test('the file-size choice is hidden for CMYK, which is always lossless', async ({ page }) => {
+  await addImages(page, ['f-shape.png']);
+  await page.click('#export');
+  const compact = page.locator('[data-group="compression"][data-value="compact"]');
+  await expect(compact).toBeVisible();
+  await page.locator('[data-group="color"][data-value="cmyk"]').click();
+  await expect(compact).toBeHidden();
+  await expect(page.locator('#export-dialog .notice').last()).toContainText('always lossless');
 });
 
 test('CMYK PDF stores CMYK pixels with the transparency kept', async ({ page }) => {
@@ -394,4 +455,124 @@ test('the export draws overlapping designs in the stacking order shown', async (
   await page.locator('.design-item', { hasText: 'bordered' }).click();
   await page.getByRole('button', { name: 'Send backward' }).click();
   expect(await centrePixel()).not.toEqual([250, 180, 0]);
+});
+
+/** The cross-check sheet split into short sheets, so its designs land on several of them. */
+async function buildSplitSheet(page: Page): Promise<void> {
+  await buildCrossCheckSheet(page);
+  await page.click('[data-layout="split"]');
+  await typeField(page, '#page-length', '10');
+  await page
+    .locator('.toast .toast-action')
+    .click({ timeout: 5000 })
+    .catch(() => undefined);
+  await arrange(page);
+  await expect(page.locator('.flag.danger')).toHaveCount(0);
+}
+
+test('a split job exports a zip with a PDF per sheet, each matching the model', async ({
+  page,
+}) => {
+  test.slow();
+  await buildSplitSheet(page);
+  const s = await state(page);
+  const { parts } = splitForExport(s.sheet);
+  expect(parts.length).toBeGreaterThan(1);
+  const images = new Map(
+    Object.entries(await assetBytes(page)).map(([id, bytes]) => {
+      const png = decode(Uint8Array.from(bytes));
+      return [id, { width: png.width, height: png.height, data: png.data }];
+    }),
+  );
+
+  const download = await exportFile(page, {
+    format: 'pdf',
+    color: 'rgb',
+    compression: 'lossless',
+    split: 'zip',
+  });
+  expect(download.suggestedFilename()).toMatch(/\.zip$/);
+  const files = unzipSync(new Uint8Array(await downloadBytes(download)));
+  const names = Object.keys(files);
+  expect(names).toHaveLength(parts.length);
+  for (const [i, part] of parts.entries()) {
+    const name = names[i] ?? '';
+    expect(name.endsWith(`-sheet-${i + 1}-of-${parts.length}.pdf`)).toBe(true);
+    const rendered = await renderWithPdfJs(page, Buffer.from(files[name] ?? new Uint8Array()));
+    const oracle = oracleAlpha(150, rendered.height, part.sheet.designs, images, false);
+    const width = Math.round((150 * 150) / 25.4);
+    expect(
+      iou(
+        oracle,
+        alphaOf(rendered),
+        Math.min(width, rendered.width),
+        rendered.height,
+        rendered.width,
+      ),
+    ).toBeGreaterThan(0.95);
+  }
+});
+
+test('a split job can export one PDF with a page per sheet', async ({ page }) => {
+  await buildSplitSheet(page);
+  const { parts } = splitForExport((await state(page)).sheet);
+  const download = await exportFile(page, { format: 'pdf', split: 'pdf-pages' });
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+  const doc = await PDFDocument.load(await downloadBytes(download), { updateMetadata: false });
+  expect(doc.getPageCount()).toBe(parts.length);
+  doc.getPages().forEach((p, i) => {
+    const lengthMm = parts[i]?.sheet.settings.fixedLengthMm ?? 0;
+    expect(p.getHeight()).toBeCloseTo((lengthMm / 25.4) * 72, 1);
+  });
+});
+
+test('separate files give a download button per sheet, each its own click', async ({ page }) => {
+  await buildSplitSheet(page);
+  const { parts } = splitForExport((await state(page)).sheet);
+  await chooseExport(page, { format: 'png', dpi: 150, split: 'files' });
+  await expect(page.locator('[data-group="split"][data-value="pdf-pages"]')).toBeHidden();
+  await page.locator('#export-go').click();
+  const buttons = page.locator('#export-files button');
+  await expect(buttons).toHaveCount(parts.length, { timeout: 110_000 });
+  for (let i = 0; i < parts.length; i++) {
+    const [download] = await Promise.all([page.waitForEvent('download'), buttons.nth(i).click()]);
+    const name = download.suggestedFilename();
+    expect(name.endsWith(`-sheet-${i + 1}-of-${parts.length}.png`)).toBe(true);
+    const png = decode(await downloadBytes(download));
+    expect(png.width).toBe(Math.round((150 * 150) / 25.4));
+  }
+});
+
+/** Alpha of one pixel of a canvas read back as RGBA numbers. */
+function alphaAt(img: { w: number; data: number[] }, x: number, y: number): number {
+  return img.data[(y * img.w + x) * 4 + 3] ?? 0;
+}
+
+test('the mirror preview shows the file flipped left to right', async ({ page }) => {
+  await addImages(page, ['f-shape.png']);
+  await typeField(page, '#insp-width', '25');
+  await page.click('#export');
+  const canvas = page.locator('#export-preview');
+  const pixels = (): Promise<{ w: number; data: number[] }> =>
+    canvas.evaluate((c: HTMLCanvasElement) => {
+      const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+      return { w: c.width, data: Array.from(ctx.getImageData(0, 0, c.width, c.height).data) };
+    });
+  await page.locator('[data-group="mirror"][data-value="regular"]').click();
+  const regular = await pixels();
+  await page.locator('[data-group="mirror"][data-value="mirrored"]').click();
+  await expect(canvas).toHaveAttribute('data-mirrored', 'true');
+  const mirrored = await pixels();
+  const h = regular.data.length / 4 / regular.w;
+  let visible = 0;
+  let matched = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < regular.w; x++) {
+      if (alphaAt(regular, x, y) < 200) continue;
+      visible++;
+      if (alphaAt(mirrored, regular.w - 1 - x, y) >= 200) matched++;
+    }
+  }
+  expect(visible).toBeGreaterThan(50);
+  expect(matched / visible).toBeGreaterThan(0.95);
 });

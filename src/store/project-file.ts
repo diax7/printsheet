@@ -14,7 +14,17 @@ import { validateSheetLenient } from '@/model/validate';
 import type { ImageAsset, Sheet } from '@/model/types';
 
 export const PROJECT_MAGIC = 'PSHEET01';
-export const PROJECT_VERSION = 1;
+/**
+ * Newest version this build reads. Version 2 marks a split job (sheets stored with the gutters
+ * between them); one long sheet is still written as version 1, so older copies of the app keep
+ * opening it, while they refuse a split job instead of showing it as one sheet with gaps.
+ */
+export const PROJECT_VERSION = 2;
+
+/** The version to write for a sheet: 2 for a split job, 1 otherwise. */
+export function formatVersion(sheet: Sheet): number {
+  return sheet.settings.layout === 'split' ? 2 : 1;
+}
 export const PROJECT_EXTENSION = '.printsheet';
 const MAX_HEADER_BYTES = 64 * 1024 * 1024;
 const MAX_IMAGE_SIDE = 65_535;
@@ -53,7 +63,7 @@ export async function serializeProject(
     offset += asset.blob.size;
   }
   const header = new TextEncoder().encode(
-    JSON.stringify({ version: PROJECT_VERSION, sheet, assets: entries }),
+    JSON.stringify({ version: formatVersion(sheet), sheet, assets: entries }),
   );
   const length = new Uint8Array(4);
   new DataView(length.buffer).setUint32(0, header.length);

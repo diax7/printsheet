@@ -3,7 +3,8 @@
  * presets, and the list of every design with its size, sharpness and warnings.
  */
 import { findIssues, type Issue } from '@/model/checks';
-import { dpiLevel, effectiveDpi, sheetLengthMm, contentLengthMm } from '@/model/geometry';
+import { dpiLevel, effectiveDpi, contentLengthMm } from '@/model/geometry';
+import { filmLengthMm, pageLengths } from '@/model/pages';
 import { formatCm } from '@/model/units';
 import {
   MAX_SHEET_LENGTH_MM,
@@ -12,9 +13,10 @@ import {
   type Design,
   type ImageAsset,
   type Settings,
+  type Sheet,
 } from '@/model/types';
 import { readyPreview } from '@/image/previews';
-import { byId, el, icon, readNumber, revealInOwnBox, setInputValue } from '@/editor/dom';
+import { bindNumber, byId, el, icon, revealInOwnBox, setInputValue } from '@/editor/dom';
 import { allPresets, type Prefs } from '@/prefs';
 import type { AppState, Store } from '@/store/store';
 
@@ -25,34 +27,24 @@ export const ISSUE_TEXT: Record<Issue['kind'], string> = {
   outside: 'Goes past the edge of the sheet and would be cut off.',
   'too-close': 'Closer than the cutting gap to another design.',
   'past-length': 'Goes past the fixed sheet length.',
+  'off-sheet':
+    'Not wholly on one sheet: it crosses a split between sheets, or is longer than a sheet.',
 };
 
 export function isSerious(kind: Issue['kind']): boolean {
-  return kind === 'low-dpi' || kind === 'outside' || kind === 'past-length';
+  return kind === 'low-dpi' || kind === 'outside' || kind === 'past-length' || kind === 'off-sheet';
+}
+
+/** Under the metres: the sheet size, or how many sheets a split job makes. */
+function sizeText(sheet: Sheet, lengthMm: number): string {
+  const width = formatCm(sheet.settings.sheetWidthMm);
+  if (sheet.settings.layout === 'single') return `${width} × ${formatCm(lengthMm)} cm`;
+  const used = pageLengths(sheet).filter((l) => l > 0).length;
+  return `${used} sheet${used === 1 ? '' : 's'} of ${width} × ${formatCm(sheet.settings.pageLengthMm)} cm`;
 }
 
 export interface PanelHandlers {
   onPresetMenu(): void;
-}
-
-/** Commit a typed number when it is in range; mark the field invalid otherwise. */
-function bindNumber(
-  input: HTMLInputElement,
-  min: number,
-  max: number,
-  apply: (value: number) => void,
-): void {
-  input.addEventListener('change', () => {
-    const value = readNumber(input);
-    if (value === null || value < min || value > max) {
-      input.setAttribute('aria-invalid', 'true');
-      input.title = `Enter a number from ${min} to ${max}`;
-      return;
-    }
-    input.removeAttribute('aria-invalid');
-    input.title = '';
-    apply(value);
-  });
 }
 
 function renderRow(
@@ -123,7 +115,6 @@ export function mountPanel(
   const preset = byId<HTMLSelectElement>('preset');
   const width = byId<HTMLInputElement>('sheet-width');
   const gap = byId<HTMLInputElement>('gap');
-  const fixedField = byId('fixed-length-field');
   const fixedLength = byId<HTMLInputElement>('fixed-length');
   const lengthButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-length]')];
   const list = byId<HTMLUListElement>('design-list');
@@ -190,10 +181,10 @@ export function mountPanel(
     const { sheet, assets, selection } = state;
     const { settings } = sheet;
     const issues = findIssues(sheet, assets);
-    const length = sheet.designs.length ? sheetLengthMm(sheet) : 0;
+    const length = sheet.designs.length ? filmLengthMm(sheet) : 0;
 
     meters.textContent = (length / 1000).toFixed(2);
-    size.textContent = `${formatCm(settings.sheetWidthMm)} × ${formatCm(length)} cm`;
+    size.textContent = sizeText(sheet, length);
     const serious = [...issues.values()].filter((found) =>
       found.some((i) => isSerious(i.kind)),
     ).length;
@@ -234,7 +225,6 @@ export function mountPanel(
     setInputValue(width, formatCm(settings.sheetWidthMm));
     setInputValue(gap, String(settings.gapMm));
     setInputValue(fixedLength, formatCm(settings.fixedLengthMm));
-    fixedField.hidden = settings.lengthMode !== 'fixed';
     for (const button of lengthButtons) {
       button.setAttribute('aria-checked', String(button.dataset['length'] === settings.lengthMode));
     }

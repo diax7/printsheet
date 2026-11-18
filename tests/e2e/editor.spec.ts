@@ -53,6 +53,16 @@ test('adds an image, trims its empty border and shows its real print size', asyn
   await expect(page.locator('.big-size')).toHaveText('5.1 × 2.5 cm');
 });
 
+test('clears a near-invisible haze, so the design trims to its real size', async ({ page }) => {
+  await addImages(page, ['hazy.png']);
+  const s = await state(page);
+  const asset = [...s.assets.values()][0];
+  // A 400 × 200 px logo inside a 1000 × 600 px file covered by a haze of alpha 3 to 9.
+  expect([asset?.widthPx, asset?.heightPx]).toEqual([400, 200]);
+  const [d] = await designs(page);
+  expect(d?.widthMm).toBeCloseTo((400 / 300) * 25.4, 3);
+});
+
 test('refuses a fully transparent image and a file that is not an image, with a reason', async ({
   page,
 }) => {

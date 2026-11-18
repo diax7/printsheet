@@ -92,6 +92,15 @@ async function withHeader(
   return new Blob([buffer.subarray(0, 8), length, json, buffer.subarray(12 + headerLength)]);
 }
 
+/** The version number written into a project file's header. */
+async function versionOf(file: Blob): Promise<unknown> {
+  let version: unknown;
+  await withHeader(file, (h) => {
+    version = h['version'];
+  });
+  return version;
+}
+
 describe('project file', () => {
   it('reopens exactly what was saved', async () => {
     const file = await serializeProject(sheet, assets);
@@ -133,6 +142,14 @@ describe('project file', () => {
     const file = await serializeProject(sheet, assets);
     await expect(parseProject(file.slice(0, file.size - 2))).rejects.toThrow(/damaged/);
     await expect(parseProject(file.slice(0, 14))).rejects.toThrow(/damaged/);
+  });
+
+  it('writes version 2 for a split job, so older copies refuse it instead of misreading it', async () => {
+    const splitSheet: Sheet = { ...sheet, settings: { ...sheet.settings, layout: 'split' } };
+    expect(await versionOf(await serializeProject(sheet, assets))).toBe(1);
+    const file = await serializeProject(splitSheet, assets);
+    expect(await versionOf(file)).toBe(2);
+    expect((await parseProject(file)).sheet.settings.layout).toBe('split');
   });
 
   it('refuses a project from a newer version', async () => {

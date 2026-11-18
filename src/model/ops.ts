@@ -3,6 +3,7 @@
  * which is what makes undo/redo a simple stack of snapshots.
  */
 import { footprint, unionFootprint } from '@/model/geometry';
+import { nextBandTop, offSheetReason } from '@/model/pages';
 import { MAX_DESIGNS, type Design, type Sheet } from '@/model/types';
 
 export type ReorderTarget = 'forward' | 'back' | 'front' | 'bottom';
@@ -43,7 +44,8 @@ export function removeDesigns(sheet: Sheet, ids: readonly string[]): Sheet {
 
 /**
  * Copy the designs as a group, placed to the right of the group with the cutting gap when it
- * fits within the sheet width, otherwise directly below it.
+ * fits within the sheet width, otherwise directly below it. In a split job, a copy below that
+ * would cross a split starts at the top of the next sheet instead.
  */
 export function duplicateDesigns(
   sheet: Sheet,
@@ -58,7 +60,13 @@ export function duplicateDesigns(
   const groupWidth = box.maxX - box.minX;
   const fitsRight = box.maxX + gapMm + groupWidth <= sheetWidthMm + 1e-6;
   const dx = fitsRight ? groupWidth + gapMm : 0;
-  const dy = fitsRight ? 0 : box.maxY - box.minY + gapMm;
+  let dy = fitsRight ? 0 : box.maxY - box.minY + gapMm;
+  const s = sheet.settings;
+  const crossesBelow =
+    !fitsRight &&
+    s.layout === 'split' &&
+    originals.some((d) => offSheetReason({ ...d, yMm: d.yMm + dy }, s) === 'crossing');
+  if (crossesBelow) dy = nextBandTop(box.minY, s) - box.minY;
   const copies = originals.map((d) => ({
     ...d,
     id: newId(),

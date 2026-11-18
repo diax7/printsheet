@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { decode, encode } from 'fast-png';
+import { decode as decodeJpeg } from 'jpeg-js';
 import { PDFDocument, PDFName, PDFRawStream, PDFDict, PDFRef, type PDFObject } from 'pdf-lib';
 import { buildPdf, type PixelSource } from '@/export/pdf';
 import { createCmykConverter } from '@/export/cmyk';
@@ -67,12 +68,63 @@ const nodePixels: PixelSource = async (a, width, height) => {
   return out;
 };
 
-const OPTS: Pick<ExportOptions, 'color' | 'pdfMaxDpi' | 'mirror' | 'fileName'> = {
-  color: 'rgb',
-  pdfMaxDpi: 'original',
-  mirror: false,
-  fileName: 'test',
-};
+const OPTS: Pick<ExportOptions, 'color' | 'pdfMaxDpi' | 'pdfCompression' | 'mirror' | 'fileName'> =
+  {
+    color: 'rgb',
+    pdfMaxDpi: 'original',
+    pdfCompression: 'lossless',
+    mirror: false,
+    fileName: 'test',
+  };
+
+/**
+ * The raw samples of a Flate image stream, undoing the PNG predictor its DecodeParms names
+ * (Predictor 15: every row starts with its PNG filter type).
+ */
+function samples(stream: PDFRawStream): Uint8Array {
+  const data = inflateSync(stream.contents);
+  const parms = stream.dict.get(PDFName.of('DecodeParms')) as PDFDict | undefined;
+  if (!parms) return data;
+  expect(parms.get(PDFName.of('Predictor'))?.toString()).toBe('15');
+  const bpp = Number(parms.get(PDFName.of('Colors'))?.toString());
+  const stride = Number(parms.get(PDFName.of('Columns'))?.toString()) * bpp;
+  const rows = data.length / (stride + 1);
+  const out = new Uint8Array(rows * stride);
+  for (let y = 0; y < rows; y++) {
+    const type = data[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? (out[y * stride + x - bpp] ?? 0) : 0;
+      const b = y > 0 ? (out[(y - 1) * stride + x] ?? 0) : 0;
+      const c = x >= bpp && y > 0 ? (out[(y - 1) * stride + x - bpp] ?? 0) : 0;
+      const p = a + b - c;
+      const [pa, pb, pc] = [Math.abs(p - a), Math.abs(p - b), Math.abs(p - c)];
+      const paeth = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      const predictor = type === 4 ? paeth : type === 0 ? 0 : NaN;
+      out[y * stride + x] = ((data[y * (stride + 1) + 1 + x] ?? 0) + predictor) & 255;
+    }
+  }
+  return out;
+}
+
+/** A bright red disc on a transparent square, stored as the canvas returns it (black where clear). */
+function disc(size: number): ImageAsset {
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const inside = Math.hypot(x - size / 2 + 0.5, y - size / 2 + 0.5) < size * 0.3;
+      if (inside) data.set([230, 20, 30, 255], (y * size + x) * 4);
+    }
+  }
+  const png = encode({ width: size, height: size, data, channels: 4, depth: 8 });
+  return {
+    id: 'a1',
+    name: 'disc.png',
+    blob: new Blob([new Uint8Array(png)], { type: 'image/png' }),
+    widthPx: size,
+    heightPx: size,
+    hasTransparency: true,
+  };
+}
 
 function sheet(designs: Design[], over: Partial<Sheet['settings']> = {}): Sheet {
   return {
@@ -83,7 +135,7 @@ function sheet(designs: Design[], over: Partial<Sheet['settings']> = {}): Sheet 
 
 async function build(s: Sheet, assets: ImageAsset[], opts: Partial<typeof OPTS> = {}) {
   const map = new Map(assets.map((a) => [a.id, a]));
-  const bytes = await buildPdf(s, map, { ...OPTS, ...opts }, { pixels: nodePixels });
+  const bytes = await buildPdf([s], map, { ...OPTS, ...opts }, { pixels: nodePixels });
   return PDFDocument.load(bytes, { updateMetadata: false });
 }
 
@@ -260,9 +312,78 @@ describe('buildPdf', () => {
     expect(img?.dict.get(PDFName.of('Width'))?.toString()).toBe('40');
     const mask = lookup(doc, img?.dict.get(PDFName.of('SMask'))) as PDFRawStream;
     expect(mask.dict.get(PDFName.of('ColorSpace'))).toEqual(PDFName.of('DeviceGray'));
-    const alpha = inflateSync(mask.contents);
+    const alpha = samples(mask);
     expect(alpha.length).toBe(40 * 20);
     expect(alpha[0]).toBe(128);
+    const rgb = samples(img as PDFRawStream);
+    expect(rgb.length).toBe(40 * 20 * 3);
+    expect(Array.from(rgb.subarray(0, 3))).toEqual([255, 255, 255]);
+  });
+
+  it('stores lossless images with a PNG predictor, so they compress well', async () => {
+    const doc = await build(sheet([design('d1')]), [asset('a1', 40, 20)]);
+    const [img] = [...images(doc).values()];
+    const parms = img?.dict.get(PDFName.of('DecodeParms')) as PDFDict;
+    expect(parms.get(PDFName.of('Predictor'))?.toString()).toBe('15');
+    expect(parms.get(PDFName.of('Colors'))?.toString()).toBe('3');
+    expect(parms.get(PDFName.of('BitsPerComponent'))?.toString()).toBe('8');
+    expect(parms.get(PDFName.of('Columns'))?.toString()).toBe('40');
+    const mask = lookup(doc, img?.dict.get(PDFName.of('SMask'))) as PDFRawStream;
+    const maskParms = mask.dict.get(PDFName.of('DecodeParms')) as PDFDict;
+    expect(maskParms.get(PDFName.of('Colors'))?.toString()).toBe('1');
+  });
+
+  it('stores colours as JPEG in compact mode and keeps the soft mask exact', async () => {
+    const s = sheet([design('d1', { widthMm: 50, heightMm: 50 })]);
+    const doc = await build(s, [disc(64)], { pdfCompression: 'compact' });
+    const [img] = [...images(doc).values()];
+    expect(img?.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('DCTDecode'));
+    expect(img?.dict.get(PDFName.of('ColorSpace'))).toEqual(PDFName.of('DeviceRGB'));
+    const jpeg = decodeJpeg(img?.contents ?? new Uint8Array(), { useTArray: true });
+    expect([jpeg.width, jpeg.height]).toEqual([64, 64]);
+    const mask = lookup(doc, img?.dict.get(PDFName.of('SMask'))) as PDFRawStream;
+    const alpha = samples(mask);
+    expect(alpha[32 * 64 + 32]).toBe(255);
+    expect(alpha[0]).toBe(0);
+  });
+
+  it('keeps full colour resolution in compact mode (no chroma subsampling)', async () => {
+    const doc = await build(sheet([design('d1')]), [asset('a1', 40, 20)], {
+      pdfCompression: 'compact',
+    });
+    const bytes = [...images(doc).values()][0]?.contents ?? new Uint8Array();
+    expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
+    // Walk the JPEG markers to the frame header (SOF0), which lists each channel's sampling.
+    let i = 2;
+    while (i + 3 < bytes.length && bytes[i + 1] !== 0xc0) {
+      i += 2 + (bytes[i + 2] ?? 0) * 256 + (bytes[i + 3] ?? 0);
+    }
+    expect(bytes[i + 1]).toBe(0xc0);
+    expect([bytes[i + 11], bytes[i + 14], bytes[i + 17]]).toEqual([0x11, 0x11, 0x11]);
+  });
+
+  it('does not darken edges in compact mode: transparent pixels carry the design colour', async () => {
+    const s = sheet([design('d1', { widthMm: 50, heightMm: 50 })]);
+    const doc = await build(s, [disc(64)], { pdfCompression: 'compact' });
+    const [img] = [...images(doc).values()];
+    const jpeg = decodeJpeg(img?.contents ?? new Uint8Array(), { useTArray: true });
+    const alpha = samples(lookup(doc, img?.dict.get(PDFName.of('SMask'))) as PDFRawStream);
+    let worst = 0;
+    for (let p = 0; p < 64 * 64; p++) {
+      if ((alpha[p] ?? 0) === 0) continue;
+      const rgb = jpeg.data.subarray(p * 4, p * 4 + 3);
+      worst = Math.max(worst, Math.abs((rgb[0] ?? 0) - 230), Math.abs((rgb[1] ?? 0) - 20));
+    }
+    expect(worst).toBeLessThan(12);
+  });
+
+  it('leaves out the soft mask in compact mode for an image without transparency', async () => {
+    const doc = await build(sheet([design('d1')]), [asset('a1', 40, 20, false)], {
+      pdfCompression: 'compact',
+    });
+    const [img] = [...images(doc).values()];
+    expect(img?.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('DCTDecode'));
+    expect(img?.dict.get(PDFName.of('SMask'))).toBeUndefined();
   });
 
   it('leaves out the soft mask for an image without transparency', async () => {
@@ -278,7 +399,7 @@ describe('buildPdf', () => {
       design('d2', { widthMm: 50, heightMm: 25, xMm: 300 }),
     ]);
     const map = new Map([[big.id, big]]);
-    const bytes = await buildPdf(s, map, { ...OPTS, pdfMaxDpi: 300 }, { pixels: nodePixels });
+    const bytes = await buildPdf([s], map, { ...OPTS, pdfMaxDpi: 300 }, { pixels: nodePixels });
     const [img] = [...images(await PDFDocument.load(bytes, { updateMetadata: false })).values()];
     expect(Number(img?.dict.get(PDFName.of('Width'))?.toString())).toBe(1181);
     expect(Number(img?.dict.get(PDFName.of('Height'))?.toString())).toBe(591);
@@ -295,7 +416,7 @@ describe('buildPdf', () => {
     const toCmyk = await createCmykConverter(profile);
     const map = new Map([['a1', asset('a1', 4, 2)]]);
     const bytes = await buildPdf(
-      sheet([design('d1')]),
+      [sheet([design('d1')])],
       map,
       { ...OPTS, color: 'cmyk' },
       { pixels: nodePixels, toCmyk },
@@ -304,22 +425,64 @@ describe('buildPdf', () => {
     const [img] = [...images(doc).values()];
     expect(img?.dict.get(PDFName.of('ColorSpace'))).toEqual(PDFName.of('DeviceCMYK'));
     expect(img?.dict.get(PDFName.of('SMask'))).toBeDefined();
-    const cmyk = inflateSync(img?.contents ?? new Uint8Array());
+    const cmyk = samples(img as PDFRawStream);
     expect(cmyk.length).toBe(4 * 2 * 4);
     expect(Array.from(cmyk.subarray(0, 4))).toEqual([0, 0, 0, 0]);
+  });
+
+  it('keeps CMYK lossless even when compact is chosen', async () => {
+    const profile = new Uint8Array(readFileSync('src/assets/cmyk-profile.icc'));
+    const toCmyk = await createCmykConverter(profile);
+    const map = new Map([['a1', asset('a1', 4, 2)]]);
+    const bytes = await buildPdf(
+      [sheet([design('d1')])],
+      map,
+      { ...OPTS, color: 'cmyk', pdfCompression: 'compact' },
+      { pixels: nodePixels, toCmyk },
+    );
+    const [img] = [...images(await PDFDocument.load(bytes, { updateMetadata: false })).values()];
+    expect(img?.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('FlateDecode'));
+    expect(img?.dict.get(PDFName.of('ColorSpace'))).toEqual(PDFName.of('DeviceCMYK'));
   });
 
   it('refuses CMYK without a converter', async () => {
     const map = new Map([['a1', asset('a1')]]);
     await expect(
-      buildPdf(sheet([design('d1')]), map, { ...OPTS, color: 'cmyk' }, { pixels: nodePixels }),
+      buildPdf([sheet([design('d1')])], map, { ...OPTS, color: 'cmyk' }, { pixels: nodePixels }),
     ).rejects.toThrow(/CMYK/);
   });
 
   it('refuses a design whose image is missing', async () => {
     await expect(
-      buildPdf(sheet([design('d1')]), new Map(), OPTS, { pixels: nodePixels }),
+      buildPdf([sheet([design('d1')])], new Map(), OPTS, { pixels: nodePixels }),
     ).rejects.toThrow(/missing/);
+  });
+
+  it('makes one page per sheet, each its own size, with each image embedded once', async () => {
+    const first = sheet([design('d1'), design('d2', { xMm: 300 })], { fixedLengthMm: 1000 });
+    const second = sheet([design('d3', { assetId: 'a2' }), design('d4')], { fixedLengthMm: 300 });
+    const map = new Map([
+      ['a1', asset('a1')],
+      ['a2', asset('a2')],
+    ]);
+    const bytes = await buildPdf([first, second], map, OPTS, { pixels: nodePixels });
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    const pages = doc.getPages();
+    expect(pages).toHaveLength(2);
+    expect(pages[0]?.getHeight()).toBeCloseTo(mmToPt(1000), 2);
+    expect(pages[1]?.getHeight()).toBeCloseTo(mmToPt(300), 2);
+    const refs = new Set<string>();
+    for (const page of pages) {
+      const xobjects = lookup(doc, page.node.Resources()?.get(PDFName.of('XObject'))) as PDFDict;
+      for (const [, ref] of xobjects.entries()) refs.add(String(ref));
+    }
+    expect(refs.size).toBe(2);
+  });
+
+  it('refuses an empty list of pages', async () => {
+    await expect(buildPdf([], new Map(), OPTS, { pixels: nodePixels })).rejects.toThrow(
+      /no sheet/i,
+    );
   });
 
   it('records the title and the producing app', async () => {

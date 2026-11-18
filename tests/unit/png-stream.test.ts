@@ -60,6 +60,34 @@ describe('encodePng', () => {
     expect(calls[7]).toEqual([896, 104]);
   });
 
+  it('keeps every pixel exact across strip boundaries', async () => {
+    const { png } = await encodeAndDecode(37, 50, 7, 300);
+    expect(Array.from(png.data)).toEqual(Array.from(strip(37, 0, 50)));
+  });
+
+  it('compresses a smooth image to a small file', async () => {
+    const width = 600;
+    const height = 600;
+    const blob = await encodePng({
+      width,
+      height,
+      dpi: 300,
+      rowsPerStrip: 64,
+      renderStrip: async (y0, rows) => {
+        const data = new Uint8ClampedArray(width * rows * 4);
+        for (let r = 0; r < rows; r++) {
+          for (let x = 0; x < width; x++) {
+            const y = y0 + r;
+            data.set([x % 256, y % 256, (x + y) % 256, 255], (r * width + x) * 4);
+          }
+        }
+        return data;
+      },
+    });
+    // Unfiltered this gradient deflates to about 150 KB; with row filters it is a few KB.
+    expect(blob.size).toBeLessThan(40_000);
+  });
+
   it('writes the resolution so the image opens at print size', async () => {
     const { png } = await encodeAndDecode(10, 10, 4, 300);
     expect(png.resolution).toEqual({ x: 11811, y: 11811, unit: 1 });

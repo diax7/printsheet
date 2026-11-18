@@ -205,6 +205,27 @@
             /></label>
           </div>
           <div class="field">
+            <span id="layout-label">Layout</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="layout-label">
+              <button
+                type="button"
+                role="radio"
+                data-layout="single"
+                title="One file, as long as the designs need"
+              >
+                One long sheet
+              </button>
+              <button
+                type="button"
+                role="radio"
+                data-layout="split"
+                title="Separate sheets of a set length, one file each"
+              >
+                Split into sheets
+              </button>
+            </div>
+          </div>
+          <div class="field" id="length-mode-field">
             <span id="length-label">Length</span>
             <div class="segmented" role="radiogroup" aria-labelledby="length-label">
               <button
@@ -229,6 +250,40 @@
             ><span>Fixed length (cm)</span
             ><input id="fixed-length" type="number" inputmode="decimal" step="1" min="1" max="500"
           /></label>
+          <div id="split-fields" hidden>
+            <label class="field"
+              ><span>Sheet length (cm)</span
+              ><input
+                id="page-length"
+                type="number"
+                inputmode="decimal"
+                step="1"
+                min="10"
+                max="500"
+            /></label>
+            <p class="hint warn" id="page-length-hint" hidden></p>
+            <div class="field">
+              <span id="last-page-label">Last sheet</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="last-page-label">
+                <button
+                  type="button"
+                  role="radio"
+                  data-last-page="trim"
+                  title="Cut the last sheet right after its designs"
+                >
+                  Trim to designs
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  data-last-page="full"
+                  title="Keep the last sheet at the full sheet length"
+                >
+                  Full length
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="group designs" aria-labelledby="designs-heading">

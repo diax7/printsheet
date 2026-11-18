@@ -887,6 +887,19 @@ input[aria-invalid='true'] {
   background: #7d1f19;
 }
 
+.toast .toast-action {
+  margin-inline-start: auto;
+  opacity: 1;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.toast .toast-action + button {
+  margin-inline-start: 0;
+}
+
 .toast button {
   margin-inline-start: auto;
   background: none;
@@ -1030,4 +1043,33 @@ progress {
     transition: none !important;
     animation: none !important;
   }
+}
+
+/* Export preview: the file on a small checkerboard sheet with its edge drawn. */
+.export-preview {
+  margin-top: 8px;
+}
+
+.export-preview-canvas {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--line-strong);
+  background-color: var(--surface);
+  background-image: conic-gradient(
+    var(--chrome) 25%,
+    transparent 0 50%,
+    var(--chrome) 0 75%,
+    transparent 0
+  );
+  background-size: 12px 12px;
+}
+
+.export-files {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.export-files .btn {
+  justify-content: flex-start;
 }

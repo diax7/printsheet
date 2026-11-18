@@ -69,6 +69,15 @@ function main(): void {
     join(OUT, 'hairline.png'),
     png(16000, 2, () => [0, 0, 0, 255]),
   );
+  // A 400×200 logo inside a 1000×600 canvas covered by a near-invisible haze (alpha 3, with
+  // specks at 9), the kind background-removal tools leave: it must trim to the logo.
+  writeFileSync(
+    join(OUT, 'hazy.png'),
+    png(1000, 600, (x, y) => {
+      if (x >= 300 && x < 700 && y >= 200 && y < 400) return [255, 255, 255, 255];
+      return [240, 240, 240, (x * 7 + y * 13) % 97 === 0 ? 9 : 3];
+    }),
+  );
   writeFileSync(join(OUT, 'not-an-image.png'), new TextEncoder().encode('this is not a PNG'));
   console.log(`Fixtures written to ${OUT}`);
 }

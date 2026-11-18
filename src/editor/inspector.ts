@@ -7,7 +7,8 @@
  * cannot be deleted until it is unlocked.
  */
 import { align, distribute, type AlignEdge } from '@/model/align';
-import { autoArrange, MAX_COPIES } from '@/model/arrange';
+import { autoArrange, moveOntoSheets, MAX_COPIES } from '@/model/arrange';
+import { offSheetReason } from '@/model/pages';
 import { findIssues, type Issue } from '@/model/checks';
 import { dpiLevel, effectiveDpi, unionFootprint } from '@/model/geometry';
 import {
@@ -193,7 +194,7 @@ function summarySection(ctx: Ctx, d: Design, issues: Issue[]): HTMLElement {
           ),
         )
       : null,
-    kinds.includes('outside')
+    kinds.includes('outside') && !crossingSplit(ctx, d)
       ? textButton(
           'arrange',
           'Move onto the sheet',
@@ -202,7 +203,34 @@ function summarySection(ctx: Ctx, d: Design, issues: Issue[]): HTMLElement {
           d.locked,
         )
       : null,
+    // Only a design across a split can be moved onto a sheet; one longer than a sheet cannot.
+    crossingSplit(ctx, d)
+      ? textButton(
+          'arrange',
+          'Move onto a sheet',
+          () => moveOntoASheet(ctx, d.id),
+          'btn btn-primary-soft',
+          d.locked,
+        )
+      : null,
   );
+}
+
+/**
+ * True when a design of a split job is on no sheet but could be moved onto one. That one button
+ * also fixes the top edge, so the plain "Move onto the sheet" is not shown beside it.
+ */
+function crossingSplit(ctx: Ctx, d: Design): boolean {
+  const settings = ctx.store.get().sheet.settings;
+  return settings.layout === 'split' && offSheetReason(d, settings) === 'crossing';
+}
+
+function moveOntoASheet(ctx: Ctx, id: string): void {
+  const sheet = ctx.store.get().sheet;
+  const next = moveOntoSheets(sheet, [id]);
+  if (next === sheet)
+    toast('No sheet has room for it. Remove designs or make the sheets longer.', 'error');
+  else ctx.commit(next);
 }
 
 function detailsSection(ctx: Ctx, d: Design): HTMLElement {

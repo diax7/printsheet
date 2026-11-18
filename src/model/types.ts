@@ -36,12 +36,23 @@ export interface Design {
 }
 
 export type LengthMode = 'auto' | 'fixed';
+/** One long sheet, or the job split into sheets of `pageLengthMm` each. */
+export type Layout = 'single' | 'split';
+/** In a split job, the last sheet is cut after its designs or kept at the full length. */
+export type LastPage = 'trim' | 'full';
+/** How the cutting gap is measured: between rectangles, or between the ink outlines. */
+export type Spacing = 'box' | 'shape';
 
 export interface Settings {
   sheetWidthMm: number;
+  /** Auto or Fixed length; applies to one long sheet only. */
   lengthMode: LengthMode;
   fixedLengthMm: number;
   gapMm: number;
+  layout: Layout;
+  pageLengthMm: number;
+  lastPage: LastPage;
+  spacing: Spacing;
 }
 
 export interface Sheet {
@@ -58,12 +69,19 @@ export interface Preset {
 
 export type PngDpi = 150 | 300 | 360 | 600;
 export type PdfMaxDpi = 'original' | 600 | 300;
+/** Compact stores RGB colour as high-quality JPEG; lossless keeps every pixel. Alpha is always exact. */
+export type PdfCompression = 'compact' | 'lossless';
+
+/** How a split job is exported: a zip of files, one PDF with a page each, or separate files. */
+export type SplitOutput = 'zip' | 'pdf-pages' | 'files';
 
 export interface ExportOptions {
   format: 'pdf' | 'png';
   color: 'rgb' | 'cmyk';
   pngDpi: PngDpi;
   pdfMaxDpi: PdfMaxDpi;
+  pdfCompression: PdfCompression;
+  splitOutput: SplitOutput;
   mirror: boolean;
   fileName: string;
 }
@@ -74,6 +92,8 @@ export interface Point {
 }
 
 export const MAX_SHEET_LENGTH_MM = 5000;
+/** Shortest sheet in a split job. */
+export const MIN_PAGE_LENGTH_MM = 100;
 export const MIN_WIDTH_MM = 100;
 /** 160 cm: wider than any DTF roll, and inside Chromium canvas limits at 600 DPI. */
 export const MAX_WIDTH_MM = 1600;
@@ -91,6 +111,10 @@ export const DEFAULT_SETTINGS: Settings = {
   lengthMode: 'auto',
   fixedLengthMm: 1000,
   gapMm: 5,
+  layout: 'single',
+  pageLengthMm: 1000,
+  lastPage: 'trim',
+  spacing: 'box',
 };
 
 export const BUILT_IN_PRESETS: readonly Preset[] = [

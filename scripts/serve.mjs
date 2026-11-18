@@ -8,7 +8,9 @@ import { join } from 'node:path';
 
 const port = Number(process.argv[2] ?? 4300);
 const config = JSON.parse(readFileSync('vercel.json', 'utf8'));
-const headers = Object.fromEntries(config.headers.flatMap((rule) => rule.headers.map((h) => [h.key, h.value])));
+const headers = Object.fromEntries(
+  config.headers.flatMap((rule) => rule.headers.map((h) => [h.key, h.value])),
+);
 const page = readFileSync(join('dist', 'index.html'));
 
 createServer((request, response) => {
@@ -19,4 +21,6 @@ createServer((request, response) => {
   }
   response.writeHead(404, headers);
   response.end('Not found');
-}).listen(port, () => console.log(`Serving dist/ with vercel.json headers on http://localhost:${port}/`));
+}).listen(port, () =>
+  console.log(`Serving dist/ with vercel.json headers on http://localhost:${port}/`),
+);

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { hasTransparentPixelsIn, trimBounds } from '@/image/trim';
+import {
+  FAINT_ALPHA_MAX,
+  clearFaintPixels,
+  hasTransparentPixelsIn,
+  trimBounds,
+} from '@/image/trim';
 
 /** A w×h RGBA image, fully transparent, with the listed pixels set to the given alpha. */
 function image(
@@ -78,5 +83,28 @@ describe('hasTransparentPixelsIn', () => {
     data[3] = 0;
     expect(hasTransparentPixelsIn(data, 4, { x: 1, y: 1, w: 3, h: 3 })).toBe(false);
     expect(hasTransparentPixelsIn(data, 4, { x: 0, y: 0, w: 2, h: 2 })).toBe(true);
+  });
+});
+
+describe('clearFaintPixels', () => {
+  it('makes nearly invisible pixels fully transparent and keeps the rest', () => {
+    const rgba = new Uint8ClampedArray([
+      200, 200, 200, 1, 200, 200, 200, 10, 200, 200, 200, 11, 30, 60, 90, 255,
+    ]);
+    expect(clearFaintPixels(rgba)).toBe(2);
+    expect(Array.from(rgba)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 200, 200, 200, 11, 30, 60, 90, 255]);
+    expect(FAINT_ALPHA_MAX).toBe(10);
+  });
+
+  it('lets the trim find the real design inside a faint haze', () => {
+    const w = 20;
+    const h = 10;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) rgba[i * 4 + 3] = 3; // haze over the whole image
+    for (let y = 4; y < 6; y++)
+      for (let x = 8; x < 12; x++) rgba.set([255, 0, 0, 255], (y * w + x) * 4);
+    expect(trimBounds(rgba, w, h)).toEqual({ x: 0, y: 0, w: 20, h: 10 });
+    clearFaintPixels(rgba);
+    expect(trimBounds(rgba, w, h)).toEqual({ x: 8, y: 4, w: 4, h: 2 });
   });
 });

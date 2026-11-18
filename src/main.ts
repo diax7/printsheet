@@ -4,8 +4,8 @@
  */
 // oxlint-disable-next-line import/no-unassigned-import -- the stylesheet is imported for its side effect.
 import '@/styles.css';
-import { autoArrange } from '@/model/arrange';
-import { contentLengthMm, footprint, initialSize, unionFootprint } from '@/model/geometry';
+import { autoArrange, moveOntoSheets } from '@/model/arrange';
+import { footprint, initialSize, unionFootprint } from '@/model/geometry';
 import { addDesigns, roomForDesigns, updateDesigns } from '@/model/ops';
 import {
   DEFAULT_SETTINGS,
@@ -30,6 +30,8 @@ import { parseProject, serializeProject, PROJECT_EXTENSION } from '@/store/proje
 import { download } from '@/export/client';
 import { safeFileName } from '@/editor/export-dialog';
 import { Packer } from '@/model/packer';
+import { bandsFor, fallbackTop, filmLengthMm } from '@/model/pages';
+import { mountLayoutControls } from '@/editor/layout-controls';
 
 const emptySheet = (settings = DEFAULT_SETTINGS): Sheet => ({
   designs: [],
@@ -63,6 +65,23 @@ const canvasView = mountCanvas(
   },
 );
 const panel = mountPanel(store, getPrefs, { onPresetMenu: openPresetDialog });
+const layoutControls = mountLayoutControls(store, {
+  onCrossing: (ids) =>
+    toast(
+      `${ids.length} design${ids.length === 1 ? ' crosses' : 's cross'} a split between sheets.`,
+      'info',
+      12000,
+      {
+        label: `Move ${ids.length === 1 ? 'it' : 'them'} onto a sheet`,
+        run: () => {
+          const sheet = store.get().sheet;
+          const next = moveOntoSheets(sheet, ids);
+          if (next === sheet) toast('No sheet has room for them. Make the sheets longer.', 'error');
+          else store.commit(next);
+        },
+      },
+    ),
+});
 const inspector = mountInspector(
   store,
   () => prefs.allowRotate,
@@ -71,7 +90,7 @@ const inspector = mountInspector(
 const rulerTop = byId<HTMLCanvasElement>('ruler-top');
 const rulerLeft = byId<HTMLCanvasElement>('ruler-left');
 canvasView.onViewChange(() =>
-  drawRulers(rulerTop, rulerLeft, canvasView.transform(), store.get().sheet.settings.sheetWidthMm),
+  drawRulers(rulerTop, rulerLeft, canvasView.transform(), store.get().sheet.settings),
 );
 
 /* ---------- Status and rendering ---------- */
@@ -90,6 +109,7 @@ const autosave = createAutosave(({ ok, message }) => {
 function renderAll(): void {
   const { sheet, selection } = store.get();
   panel.render();
+  layoutControls.render();
   inspector.render();
   byId<HTMLButtonElement>('undo').disabled = !store.canUndo();
   byId<HTMLButtonElement>('redo').disabled = !store.canRedo();
@@ -118,13 +138,18 @@ store.subscribe((state, previous) => {
 /** Place new designs in free space below or beside what is already there. */
 function placeNewDesigns(sheet: Sheet, assets: ImageAsset[]): { sheet: Sheet; ids: string[] } {
   const { sheetWidthMm, gapMm } = sheet.settings;
-  const packer = new Packer(sheetWidthMm, gapMm, sheet.designs.map(footprint));
+  const packer = new Packer(
+    sheetWidthMm,
+    gapMm,
+    sheet.designs.map(footprint),
+    bandsFor(sheet.settings),
+  );
   const added: Design[] = [];
   for (const asset of assets) {
     const size = initialSize(asset, sheetWidthMm);
     const spot = packer.find(size.widthMm, size.heightMm) ?? {
       minX: 0,
-      minY: contentLengthMm([...sheet.designs, ...added]) + gapMm,
+      minY: fallbackTop({ ...sheet, designs: [...sheet.designs, ...added] }),
       maxX: size.widthMm,
       maxY: 0,
     };
@@ -297,14 +322,14 @@ byId('arrange').addEventListener('click', async () => {
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const { sheet, selection } = store.get();
     const ids = selection.length > 1 ? selection : 'all';
-    const before = contentLengthMm(sheet.designs);
+    const before = filmLengthMm(sheet);
     const next = autoArrange(sheet, ids, { allowRotate: prefs.allowRotate });
     store.commit(next);
-    const after = contentLengthMm(next.designs);
+    const after = filmLengthMm(next);
     toast(
       after < before
-        ? `Arranged. The sheet is now ${(after / 1000).toFixed(2)} m, ${((before - after) / 10).toFixed(0)} cm shorter.`
-        : `Arranged. The sheet is ${(after / 1000).toFixed(2)} m.`,
+        ? `Arranged. The film is now ${(after / 1000).toFixed(2)} m, ${((before - after) / 10).toFixed(0)} cm shorter.`
+        : `Arranged. The film is ${(after / 1000).toFixed(2)} m.`,
     );
   } finally {
     busy.hidden = true;
