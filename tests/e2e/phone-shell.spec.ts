@@ -214,22 +214,27 @@ test('closing the last sheet takes its scroll room away without the view going s
   await expect
     .poll(() => page.locator('#scroller').evaluate((el) => el.scrollTop))
     .toBeGreaterThan(0);
-  await sheet(page, 'Size').getByRole('button', { name: 'Close' }).click();
-  await expect
-    .poll(() =>
-      page.locator('#scroller').evaluate((el) => el.scrollTop <= el.scrollHeight - el.clientHeight),
-    )
-    .toBe(true);
-  // The canvas follows the scroll: the sheet's top edge is drawn 48 px below the content's top.
+  // Close and measure in the same task, before any scroll event: the canvas must already follow,
+  // so a touch that lands before the next frame is measured against the right place.
   const view = await page.locator('#scroller').evaluate((el) => {
+    const close = document.querySelector<HTMLElement>('#sheet-size button[aria-label="Close"]');
+    close?.click();
     const hook = (
       window as unknown as {
         __printsheet: { toClient(a: number, b: number): { x: number; y: number } };
       }
     ).__printsheet;
     const canvasTop = document.getElementById('sheet-canvas')?.getBoundingClientRect().top ?? 0;
-    return { drawnAt: hook.toClient(0, 0).y - canvasTop, expected: 48 - el.scrollTop };
+    return {
+      closed: Boolean(close),
+      inside: el.scrollTop <= el.scrollHeight - el.clientHeight,
+      drawnAt: hook.toClient(0, 0).y - canvasTop,
+      expected: 48 - el.scrollTop,
+    };
   });
+  expect(view.closed).toBe(true);
+  expect(view.inside).toBe(true);
+  // The canvas follows the scroll: the sheet's top edge is drawn 48 px below the content's top.
   expect(view.drawnAt).toBeCloseTo(view.expected, 0);
 });
 
@@ -261,7 +266,10 @@ test('the controls move into the sheets and back, in their places, never copied'
         return `${selector} x${found.length} in ${parent?.className ?? '?'}[${index}]`;
       }),
     );
+  // The layout follows a media query whose change event comes at the next frame: wait for the
+  // computer layout to be in place before recording it.
   await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(bottomBar(page).getByRole('button')).toHaveCount(0);
   const pc = await layout();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(layout).not.toEqual(pc);
@@ -273,7 +281,14 @@ test('the controls move into the sheets and back, in their places, never copied'
   // While a field has focus nothing moves; it moves once the field is left.
   await page.locator('#sheet-width').focus();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(200);
+  // Two frames after the query matches, its change event has surely been handled.
+  await page.evaluate(async () => {
+    while (!matchMedia('(max-width: 820px)').matches) {
+      await new Promise((done) => requestAnimationFrame(done));
+    }
+    for (let i = 0; i < 2; i++) await new Promise((done) => requestAnimationFrame(done));
+  });
+  await expect(page.locator('#sheet-width')).toBeFocused();
   expect(await layout()).toEqual(pc);
   await page.locator('#sheet-width').blur();
   await expect.poll(layout).not.toEqual(pc);

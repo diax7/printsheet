@@ -37,6 +37,30 @@ test('restores the sheet after the page is reloaded', async ({ page }) => {
   await expect(page.locator('.design-item')).toHaveCount(2);
 });
 
+test('a restored sheet is not saved again, so the restore message stays', async ({ page }) => {
+  await addImages(page, ['f-shape.png']);
+  await expect(page.locator('#save-status')).toHaveText('Saved in this browser');
+  await page.reload();
+  await page.waitForSelector('body[data-ready="true"]');
+  await expect(page.locator('#save-status')).toHaveText('Restored your last sheet');
+  // Longer than the autosave delay: a needless save would have replaced the message by now.
+  await page.waitForTimeout(1500);
+  await expect(page.locator('#save-status')).toHaveText('Restored your last sheet');
+});
+
+test('says Saving until the latest change is in the browser, never Saved too early', async ({
+  page,
+}) => {
+  await addImages(page, ['f-shape.png']);
+  await expect(page.locator('#save-status')).toHaveText('Saved in this browser');
+  await typeField(page, '#insp-width', '9');
+  await expect(page.locator('#save-status')).toHaveText('Saving…');
+  await expect(page.locator('#save-status')).toHaveText('Saved in this browser');
+  await page.reload();
+  await page.waitForSelector('body[data-ready="true"]');
+  expect((await designs(page))[0]?.widthMm).toBeCloseTo(90, 5);
+});
+
 test('saves a project file and opens it again exactly', async ({ page }, info) => {
   await addImages(page, ['f-shape.png', 'bordered.png']);
   await selectInList(page, 'bordered');

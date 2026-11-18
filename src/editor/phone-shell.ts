@@ -14,6 +14,7 @@ import { phoneBar, selectionMenu } from '@/editor/phone-bar';
 import { openMenu } from '@/editor/menu';
 import { revealOffset, scrollWithoutRoom, sheetLift } from '@/editor/sheet-maths';
 import type { ActionBarDeps } from '@/editor/action-bar';
+import type { CanvasView } from '@/editor/canvas';
 import { byId, el, isTyping } from '@/editor/dom';
 import type { Store } from '@/store/store';
 
@@ -168,7 +169,7 @@ function createSheets(onClose: () => void): Record<SheetName, BottomSheet> {
  * the canvas follows one deliberate scroll instead of whatever the browser does when its content
  * shrinks.
  */
-function dropSheetRoom(scroller: HTMLElement): void {
+function dropSheetRoom(scroller: HTMLElement, view: CanvasView): void {
   const room = Number.parseFloat(scroller.style.getPropertyValue('--sheet-room')) || 0;
   const top = scrollWithoutRoom(
     scroller.scrollTop,
@@ -176,7 +177,7 @@ function dropSheetRoom(scroller: HTMLElement): void {
     room,
     scroller.clientHeight,
   );
-  if (top < scroller.scrollTop) scroller.scrollTop = top;
+  if (top < scroller.scrollTop) view.panBy(0, top - scroller.scrollTop);
   scroller.style.removeProperty('--sheet-room');
 }
 
@@ -206,7 +207,7 @@ export function mountPhoneShell(deps: PhoneShellDeps): {
   const { app, store, scroller } = deps;
   // With no sheet open, the extra scroll room for revealing a design goes away.
   const sheets = createSheets(() => {
-    if (!Object.values(sheets).some((s) => s.isOpen())) dropSheetRoom(scroller);
+    if (!Object.values(sheets).some((s) => s.isOpen())) dropSheetRoom(scroller, deps.view);
   });
   const barElement = el('nav', { class: 'phone-bar', id: 'phone-bar', 'aria-label': 'Tools' });
   app.append(barElement, ...Object.values(sheets).map((s) => s.element));

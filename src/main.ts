@@ -667,6 +667,9 @@ async function start(): Promise<void> {
         [...saved.assets.values()].map((a) => loadPreview(a).catch(() => undefined)),
       );
       store.load(saved.sheet, saved.assets);
+      // Saving it again would only write the same data and replace the message below; a sheet
+      // that lost damaged designs is saved, so the cleaned version is what is stored.
+      if (!saved.dropped) autosave.adopt();
       saveStatus.textContent = 'Restored your last sheet';
     } else if (saved) {
       store.load(emptySheet(saved.sheet.settings), new Map());

@@ -45,6 +45,8 @@ export interface Autosave {
   pause(paused: boolean): void;
   /** True when every change so far is safely stored (nothing waiting, nothing failed). */
   isSaved(): boolean;
+  /** The sheet just loaded is exactly what is stored: drop the save its loading scheduled. */
+  adopt(): void;
 }
 
 export function createAutosave(
@@ -56,6 +58,7 @@ export function createAutosave(
   let timer: number | undefined;
   let chain: Promise<void> = Promise.resolve();
   let saved = true;
+  let lastOk = true;
   let paused = false;
   let mayDelete = false;
   // Only one tab cleans up images; the lock is held for the life of the tab.
@@ -103,6 +106,8 @@ export function createAutosave(
     schedule(sheet, assets, keep) {
       saved = false;
       if (paused) return;
+      // "Saved" must not stay on screen while a newer change waits; a failure message stays up.
+      if (lastOk) onStatus({ ok: true, message: 'Saving…' });
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         chain = chain
@@ -110,9 +115,11 @@ export function createAutosave(
           .then(
             () => {
               saved = true;
+              lastOk = true;
               onStatus({ ok: true, message: 'Saved in this browser' });
             },
             (error: unknown) => {
+              lastOk = false;
               const quota = error instanceof DOMException && error.name === 'QuotaExceededError';
               onStatus({
                 ok: false,
@@ -152,6 +159,11 @@ export function createAutosave(
     },
 
     isSaved: () => saved,
+
+    adopt() {
+      window.clearTimeout(timer);
+      saved = true;
+    },
   };
 }
 

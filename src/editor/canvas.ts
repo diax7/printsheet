@@ -81,7 +81,7 @@ export interface CanvasView {
   cancelGesture(): void;
   /** Before a new touch: ends, unsaved, anything a lost touch left behind, and redraws. */
   settleGesture(): void;
-  /** Scroll the sheet by screen pixels. */
+  /** Scroll the sheet by screen pixels; the canvas follows at once, not at the next frame. */
   panBy(dx: number, dy: number): void;
   /** While panning, Fabric finds no targets and draws no selection box. */
   setPanMode(mode: PanMode): void;
@@ -696,6 +696,10 @@ export function mountCanvas(
     panBy(dx, dy) {
       scroller.scrollLeft += dx;
       scroller.scrollTop += dy;
+      // The scroll event comes a frame later; until then a touch would be measured against the
+      // old place, so the canvas follows now.
+      updateViewport();
+      canvas.requestRenderAll();
     },
     setPanMode(mode) {
       canvas.skipTargetFind = mode !== 'off';
