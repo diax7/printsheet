@@ -127,6 +127,9 @@ export function mountCanvas(
     selectionColor: 'rgba(0, 134, 179, 0.12)',
     selectionBorderColor: ACCENT,
     selectionLineWidth: 1,
+    // On a phone a finger swipe must scroll the sheet (else only its first screenful can be
+    // seen). Swipes on the mat or on an unselected design scroll; a selected design still drags.
+    allowTouchScrolling: true,
   });
   canvas.fireMiddleClick = false;
 
