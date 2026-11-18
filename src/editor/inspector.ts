@@ -464,7 +464,7 @@ export function mountInspector(
         ),
       );
     else host.replaceChildren(renderNone());
-    if (focusedId) document.getElementById(focusedId)?.focus();
+    if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
   }
 
   return { render };

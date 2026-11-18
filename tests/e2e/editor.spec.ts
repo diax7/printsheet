@@ -420,3 +420,25 @@ test('About shows the version, the privacy promise and the source link', async (
     'noopener noreferrer',
   );
 });
+
+test('selecting a design on the sheet shows its row in the design list', async ({ page }) => {
+  await addImages(page, ['f-shape.png', 'bordered.png']);
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+d');
+  }
+  await page.keyboard.press('Escape');
+  const all = await designs(page);
+  expect(all).toHaveLength(16);
+  // The bottom design of the stack is the last row, below the panel's visible part.
+  const bottom = all[0] as (typeof all)[number];
+  const row = page.locator(`.design-item[data-id="${bottom.id}"]`);
+  await page
+    .locator('#panel-left, .panel-left')
+    .first()
+    .evaluate((el) => (el.scrollTop = 0));
+  const point = await toClient(page, bottom.xMm, bottom.yMm);
+  await page.mouse.click(point.x, point.y);
+  await expect.poll(async () => (await state(page)).selection).toEqual([bottom.id]);
+  await expect(row).toBeInViewport();
+});

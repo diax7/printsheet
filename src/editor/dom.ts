@@ -163,3 +163,23 @@ export function confirmDialog(
     dialog.showModal();
   });
 }
+
+/**
+ * Brings `target` into view inside the box that scrolls it, never by scrolling the page. On a
+ * computer the design list scrolls in its own panel, so the selected row is shown there; on a
+ * phone the panels are part of the page, and scrolling the page would pull the user away from
+ * the sheet they are working on, so nothing moves.
+ */
+export function revealInOwnBox(target: HTMLElement): void {
+  let box = target.parentElement;
+  while (box && box !== document.body) {
+    const scrolls = /(auto|scroll)/.test(getComputedStyle(box).overflowY);
+    if (scrolls && box.scrollHeight > box.clientHeight) break;
+    box = box.parentElement;
+  }
+  if (!box || box === document.body) return;
+  const outer = box.getBoundingClientRect();
+  const inner = target.getBoundingClientRect();
+  if (inner.top < outer.top) box.scrollTop -= outer.top - inner.top;
+  else if (inner.bottom > outer.bottom) box.scrollTop += inner.bottom - outer.bottom;
+}

@@ -3,7 +3,7 @@
  * only the first screenful of a long sheet can ever be seen (reported on an iPhone, 2026-11-18).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { addImages, collectErrors, designs, openApp, typeField } from './helpers';
+import { addImages, collectErrors, designs, openApp, state, typeField } from './helpers';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -69,4 +69,27 @@ test('the canvas fills most of the phone screen, not a small window', async ({ p
     .locator('#scroller')
     .evaluate((el) => el.getBoundingClientRect().height);
   expect(height).toBeGreaterThan(844 * 0.8);
+});
+
+test('tapping a design keeps the page where it is (no jump to the list)', async ({ page }) => {
+  await addImages(page, ['f-shape.png', 'bordered.png']);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() =>
+    document.getElementById('scroller')?.scrollIntoView({ block: 'start' }),
+  );
+  const design = (await designs(page))[0];
+  if (!design) throw new Error('no design');
+  const point = await page.evaluate(
+    ([x, y]) =>
+      (
+        window as unknown as {
+          __printsheet: { toClient(x: number, y: number): { x: number; y: number } };
+        }
+      ).__printsheet.toClient(x, y),
+    [design.xMm, design.yMm] as const,
+  );
+  const before = await page.evaluate(() => window.scrollY);
+  await page.touchscreen.tap(point.x, point.y);
+  await expect.poll(async () => (await state(page)).selection).toEqual([design.id]);
+  expect(await page.evaluate(() => window.scrollY)).toBe(before);
 });

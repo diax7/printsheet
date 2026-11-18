@@ -14,7 +14,7 @@ import {
   type Settings,
 } from '@/model/types';
 import { readyPreview } from '@/image/previews';
-import { byId, el, icon, readNumber, setInputValue } from '@/editor/dom';
+import { byId, el, icon, readNumber, revealInOwnBox, setInputValue } from '@/editor/dom';
 import { allPresets, type Prefs } from '@/prefs';
 import type { AppState, Store } from '@/store/store';
 
@@ -256,8 +256,13 @@ export function mountPanel(
         ? rows
         : [el('li', { class: 'list-empty', text: 'Designs you add appear here.' })]),
     );
-    if (focusedId) list.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
-    list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    if (focusedId) {
+      list
+        .querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)
+        ?.focus({ preventScroll: true });
+    }
+    const selectedRow = list.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (selectedRow) revealInOwnBox(selectedRow);
   }
 
   return { render };
