@@ -1019,6 +1019,10 @@ progress {
   .topbar-end {
     margin-inline-start: auto;
   }
+  /* With nothing selected the right panel only holds desktop help and keyboard shortcuts. */
+  .panel-right:has(> .inspector-empty) {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

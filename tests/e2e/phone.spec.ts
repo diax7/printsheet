@@ -93,3 +93,14 @@ test('tapping a design keeps the page where it is (no jump to the list)', async 
   await expect.poll(async () => (await state(page)).selection).toEqual([design.id]);
   expect(await page.evaluate(() => window.scrollY)).toBe(before);
 });
+
+test('the "Nothing selected" help and shortcuts are not shown on a phone', async ({ page }) => {
+  await addImages(page, ['f-shape.png']);
+  await expect(page.locator('#inspector')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state(page)).selection).toEqual([]);
+  await expect(page.locator('#inspector')).toBeHidden();
+  // A selected design still gets its size controls.
+  await page.locator('.design-item').first().click();
+  await expect(page.locator('#insp-width')).toBeVisible();
+});
