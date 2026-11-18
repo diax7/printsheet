@@ -35,27 +35,51 @@ function sizeOf(d: Design): Size {
   return { w: fp.maxX - fp.minX, h: fp.maxY - fp.minY };
 }
 
-/** Place `items` one by one around `fixed`; returns the placed designs in input order. */
-function fill(
-  items: readonly Design[],
-  fixed: readonly Design[],
-  sheet: Sheet,
-  rotate: boolean,
-): Design[] {
-  const { sheetWidthMm: width, gapMm: gap } = sheet.settings;
-  const packer = new Packer(width, gap, fixed.map(footprint), bandsFor(sheet.settings));
-  let lowest = Math.max(0, ...fixed.map((d) => footprint(d).maxY + gap));
-  const order = items
-    .map((d, index) => ({ d, index, size: sizeOf(d) }))
+/** Largest side first, then tallest: the order one plain Arrange places designs in. */
+function bySize(items: readonly Design[]): number[] {
+  return items
+    .map((d, index) => ({ index, size: sizeOf(d) }))
     .toSorted(
       (a, b) =>
         Math.max(b.size.w, b.size.h) - Math.max(a.size.w, a.size.h) ||
         b.size.h - a.size.h ||
         a.index - b.index,
-    );
+    )
+    .map((o) => o.index);
+}
+
+/** `fill` may choose a design's turn, or is told: keep its angle, or turn it by 90°. */
+export type TurnPin = 'free' | 'keep' | 'turn';
+
+/**
+ * Place `items` one by one around `fixed`, keeping the gap between rectangles; returns the
+ * placed designs in input order.
+ *
+ * Args:
+ *   items: The designs to place.
+ *   fixed: Designs that stay where they are.
+ *   sheet: The sheet (for its settings).
+ *   rotate: With it, each design takes the better of its own angle and +90°.
+ *   order: Item indexes in the order to place them; largest first when absent.
+ *   pins: Per item, a turn to use instead of choosing (only with `rotate`).
+ */
+export function fill(
+  items: readonly Design[],
+  fixed: readonly Design[],
+  sheet: Sheet,
+  rotate: boolean,
+  order: readonly number[] = bySize(items),
+  pins: readonly TurnPin[] = [],
+): Design[] {
+  const { sheetWidthMm: width, gapMm: gap } = sheet.settings;
+  const packer = new Packer(width, gap, fixed.map(footprint), bandsFor(sheet.settings));
+  let lowest = Math.max(0, ...fixed.map((d) => footprint(d).maxY + gap));
   const placed = new Map<number, Design>();
-  for (const { d, index } of order) {
-    const options = rotate ? [d, { ...d, angleDeg: normalizeAngle(d.angleDeg + 90) }] : [d];
+  for (const index of order) {
+    const d = items[index] as Design;
+    const pin = rotate ? (pins[index] ?? 'free') : 'keep';
+    const turned = { ...d, angleDeg: normalizeAngle(d.angleDeg + 90) };
+    const options = pin === 'free' ? [d, turned] : [pin === 'turn' ? turned : d];
     let best: { design: Design; spot: Box } | null = null;
     for (const option of options) {
       const size = sizeOf(option);

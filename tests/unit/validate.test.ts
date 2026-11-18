@@ -167,6 +167,12 @@ describe('validateSettings', () => {
     });
   });
 
+  it('gives a new sheet rectangle spacing, the owner choice, and keeps a saved choice', () => {
+    expect(DEFAULT_SETTINGS.spacing).toBe('box');
+    expect(validateSettings(old).spacing).toBe('box');
+    expect(validateSettings({ ...old, spacing: 'shape' }).spacing).toBe('shape');
+  });
+
   it('keeps valid split settings', () => {
     const v = { ...old, layout: 'split', pageLengthMm: 500, lastPage: 'full', spacing: 'shape' };
     expect(validateSettings(v)).toEqual(v);

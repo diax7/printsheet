@@ -205,6 +205,27 @@
             /></label>
           </div>
           <div class="field">
+            <span id="spacing-label">Gap measured between</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="spacing-label">
+              <button
+                type="button"
+                role="radio"
+                data-spacing="shape"
+                title="The cutting gap is kept between the designs themselves, so Arrange can fit one design into the empty corner of another"
+              >
+                Real shapes
+              </button>
+              <button
+                type="button"
+                role="radio"
+                data-spacing="box"
+                title="The cutting gap is kept between the rectangles around the designs"
+              >
+                Rectangles
+              </button>
+            </div>
+          </div>
+          <div class="field">
             <span id="layout-label">Layout</span>
             <div class="segmented" role="radiogroup" aria-labelledby="layout-label">
               <button
@@ -341,6 +362,7 @@
     <dialog class="dialog" id="export-dialog" aria-labelledby="export-title"></dialog>
     <dialog class="dialog" id="preset-dialog" aria-labelledby="preset-title"></dialog>
     <dialog class="dialog" id="confirm-dialog"></dialog>
+    <dialog class="dialog" id="arrange-dialog" aria-labelledby="arrange-title"></dialog>
     <dialog class="dialog" id="about-dialog" aria-labelledby="about-title"></dialog>
   </body>
 </html>

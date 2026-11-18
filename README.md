@@ -23,13 +23,26 @@ them).
 - **Empty borders trimmed.** Transparent space around an image is cut off when you add it, so the
   size you see is the size of the ink.
 - **Organise quickly.** Drag, resize, rotate (snaps every 15°), flip, duplicate, add many copies at
-  once, lock, align, distribute, and **Arrange** to pack everything tightly and save film.
+  once, lock, align and distribute.
+- **Arrange: the least film, found for you.** One click packs the designs (all of them, or the
+  ones you selected) into the shortest sheet it can find. For about four seconds it tries
+  hundreds of layouts, with different orders and quarter turns, and keeps the shortest; you see
+  the best length so far and can stop at any time and keep it. It never mirrors a design, it
+  leaves locked designs alone, and it never replaces a good layout with a longer one. Click it
+  again to let it look further. One undo puts everything back.
+- **The cutting gap, between rectangles or real shapes.** By default the gap is kept between
+  the rectangles around the designs. Set **Gap measured between** to **Real shapes** in the sheet
+  settings and the gap is kept between the designs themselves instead, so Arrange fits one design
+  into the empty corner of another, as you would by hand, and uses much less film. Any visible
+  pixel counts as part of the design, however faint, and the outline is measured on a 1 mm grid
+  that never errs on the tight side. The app remembers your choice for new sheets.
 - **Warnings that protect the print:**
   - sharpness: green at 300 DPI or more, amber from 150 to 299, red below 150;
   - an image with no transparent background (it would print as a solid rectangle);
   - a design past the edge of the sheet (export is blocked until it is fixed; one click moves it
     back);
-  - designs closer than your cutting gap (5 mm by default);
+  - designs closer than your cutting gap (5 mm by default), measured the way you chose: between
+    real shapes or between rectangles;
   - designs past a fixed length.
 - **Workspace background:** transparent checkerboard, white, black or any colour, so you can judge
   your designs on the shirt colour. This is for viewing only; exports are always transparent.
@@ -42,7 +55,8 @@ them).
 2. Set the sheet width to what your printer or print shop can print (check with them).
 3. Add your designs: **Add images**, drag files onto the sheet, or paste with Ctrl+V. Transparent
    PNG files at 300 DPI give the best result.
-4. Place them: drag, or type exact sizes on the right. Click **Arrange** to pack them.
+4. Place them: drag, or type exact sizes on the right. Click **Arrange** to pack them into the
+   least film.
 5. Fix anything marked in red or amber.
 6. Click **Export**, choose the settings below, and send the file to your printer.
 

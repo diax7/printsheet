@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createStore } from '@/store/store';
 import { updateDesign } from '@/model/ops';
-import { DEFAULT_SETTINGS, type Design, type Sheet } from '@/model/types';
+import { fullMask } from '@/model/mask';
+import { DEFAULT_SETTINGS, type Design, type ImageAsset, type Sheet } from '@/model/types';
 
 function design(id: string, x = 50): Design {
   return {
@@ -114,5 +115,42 @@ describe('store', () => {
     store.commit({ ...empty, designs: [{ ...design('d1'), assetId: 'a1' }] });
     store.commit({ ...empty, designs: [{ ...design('d2'), assetId: 'a2' }] });
     expect([...store.referencedAssetIds()].toSorted()).toEqual(['a1', 'a2']);
+  });
+
+  it('takes ink masks without an undo step, and tells the views', () => {
+    const store = createStore({ ...empty, designs: [design('d1')] });
+    const seen = vi.fn();
+    store.subscribe(seen);
+    const before = store.get();
+    store.addMasks(new Map([['a1', fullMask()]]));
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(store.get().masks).not.toBe(before.masks);
+    expect(store.get().masks.has('a1')).toBe(true);
+    // The sheet and the images are the same objects: nothing to save, nothing to undo.
+    expect(store.get().sheet).toBe(before.sheet);
+    expect(store.get().assets).toBe(before.assets);
+    expect(store.canUndo()).toBe(false);
+    store.addMasks(new Map());
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the masks of images that are still there when a sheet is loaded', () => {
+    const store = createStore(empty);
+    store.addMasks(
+      new Map([
+        ['a1', fullMask()],
+        ['gone', fullMask()],
+      ]),
+    );
+    const asset: ImageAsset = {
+      id: 'a1',
+      name: 'a',
+      blob: new Blob(),
+      widthPx: 10,
+      heightPx: 10,
+      hasTransparency: true,
+    };
+    store.load({ ...empty, designs: [design('d1')] }, new Map([['a1', asset]]));
+    expect([...store.get().masks.keys()]).toEqual(['a1']);
   });
 });

@@ -5,6 +5,7 @@
 // oxlint-disable-next-line import/default -- Vite's ?worker import is a virtual module with a default export.
 import ImportWorker from '@/image/import-worker?worker&inline';
 import type { ImportRequest, ImportResponse } from '@/image/import-worker';
+import { withSum, type ShapeMask } from '@/model/mask';
 import type { ImageAsset } from '@/model/types';
 
 let worker: Worker | null = null;
@@ -34,12 +35,27 @@ function getWorker(): Worker {
   return created;
 }
 
-function process(file: Blob, name: string): Promise<ImportResponse> {
+function process(
+  file: Blob,
+  name: string,
+  kind: ImportRequest['kind'] = 'import',
+): Promise<ImportResponse> {
   const id = nextId++;
   return new Promise((resolve) => {
     pending.set(id, resolve);
-    getWorker().postMessage({ id, file, name } satisfies ImportRequest);
+    getWorker().postMessage({ id, file, name, kind } satisfies ImportRequest);
   });
+}
+
+/**
+ * The ink mask of an image that has none yet (one restored from a saved sheet), worked out in
+ * the import worker from the full image.
+ */
+export async function readMask(asset: ImageAsset): Promise<ShapeMask> {
+  const response = await process(asset.blob, asset.name, 'mask');
+  if (!response.ok) throw new Error(response.message);
+  if (!('maskOnly' in response)) throw new Error('The image reader answered the wrong question.');
+  return withSum(response.mask);
 }
 
 /** A readable design name from a file name: no extension, no path. */
@@ -51,6 +67,8 @@ export function nameFromFile(fileName: string): string {
 
 export interface ImportResult {
   assets: ImageAsset[];
+  /** Ink masks of the imported images, by asset id. */
+  masks: Map<string, ShapeMask>;
   errors: string[];
 }
 
@@ -63,11 +81,13 @@ export async function importFiles(
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportResult> {
   const assets: ImageAsset[] = [];
+  const masks = new Map<string, ShapeMask>();
   const errors: string[] = [];
   let done = 0;
   for (const { blob, name } of files) {
     const response = await process(blob, name);
-    if (response.ok) {
+    if (response.ok && !('maskOnly' in response)) {
+      masks.set(`img-${response.hash}`, withSum(response.mask));
       assets.push({
         id: `img-${response.hash}`,
         name: nameFromFile(name),
@@ -76,10 +96,10 @@ export async function importFiles(
         heightPx: response.heightPx,
         hasTransparency: response.hasTransparency,
       });
-    } else {
+    } else if (!response.ok) {
       errors.push(response.message);
     }
     onProgress?.(++done, files.length);
   }
-  return { assets, errors };
+  return { assets, masks, errors };
 }

@@ -7,7 +7,7 @@ import { exportBlocker, findIssues } from '@/model/checks';
 import { contentLengthMm, sheetLengthMm } from '@/model/geometry';
 import { filmLengthMm, splitForExport } from '@/model/pages';
 import { formatCm, formatM } from '@/model/units';
-import type { ExportOptions, ImageAsset, Sheet } from '@/model/types';
+import type { ExportOptions, Sheet } from '@/model/types';
 import { download, ExportCancelled, startExport, type RunningExport } from '@/export/client';
 import { defaultFileName, outputKind } from '@/export/output';
 import { pngBlocker, pngSize } from '@/export/png';
@@ -15,7 +15,7 @@ import type { ExportFile } from '@/export/worker';
 import { byId, el, toast } from '@/editor/dom';
 import { exportPreview, type ExportPreview } from '@/editor/export-preview';
 import type { Prefs } from '@/prefs';
-import type { Store } from '@/store/store';
+import type { AppState, Store } from '@/store/store';
 
 /** File names keep letters, digits, spaces, dots, dashes and underscores. */
 export function safeFileName(name: string): string {
@@ -35,11 +35,8 @@ function emptyText(empty: readonly number[]): string {
 }
 
 /** One line describing what will be made. */
-function summaryText(
-  sheet: Sheet,
-  assets: ReadonlyMap<string, ImageAsset>,
-  opts: ExportOptions,
-): string {
+function summaryText(state: AppState, opts: ExportOptions): string {
+  const { sheet, assets, masks } = state;
   const count = sheet.designs.length;
   const designs = `${count} design${count === 1 ? '' : 's'}`;
   const { parts, empty } = splitForExport(sheet);
@@ -57,7 +54,7 @@ function summaryText(
     text += `, ${parts.length > 1 ? 'each up to ' : ''}${sizes[0]?.widthPx ?? 0} × ${tallest} px`;
   }
   text += emptyText(empty);
-  const warned = [...findIssues(sheet, assets).values()].filter((l) =>
+  const warned = [...findIssues(sheet, assets, masks).values()].filter((l) =>
     l.some((i) => i.kind !== 'ok-dpi'),
   ).length;
   return text + (warned ? `. ${warned} with warnings.` : '.');
@@ -320,7 +317,8 @@ export function openExportDialog(
   savePrefs: (p: Prefs) => void,
 ): void {
   const dialog = byId<HTMLDialogElement>('export-dialog');
-  const { sheet, assets } = store.get();
+  const opened = store.get();
+  const { sheet } = opened;
   const opts: ExportOptions = {
     ...getPrefs().exportOptions,
     fileName: defaultFileName(sheet, new Date()),
@@ -349,7 +347,7 @@ export function openExportDialog(
   const cancelButton = el('button', { class: 'btn btn-outline', type: 'button', text: 'Cancel' });
 
   const refresh = (): void => {
-    summary.textContent = summaryText(sheet, assets, opts);
+    summary.textContent = summaryText(opened, opts);
     const blocker = blockerFor(sheet, opts);
     blockNotice.textContent = blocker ?? '';
     blockNotice.hidden = !blocker;

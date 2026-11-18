@@ -4,11 +4,20 @@ import {
   effectiveDpi,
   footprint,
   polygonDistance,
+  type Box,
   sheetLengthMm,
   contentLengthMm,
 } from '@/model/geometry';
+import { fullMask, type ShapeMask } from '@/model/mask';
 import { offSheetReason, onDifferentPages, type OffSheetReason } from '@/model/pages';
-import { MAX_SHEET_LENGTH_MM, type Design, type ImageAsset, type Sheet } from '@/model/types';
+import { inkTooClose, poseCells, type Posed } from '@/model/raster';
+import {
+  MAX_SHEET_LENGTH_MM,
+  type Design,
+  type ImageAsset,
+  type Point,
+  type Sheet,
+} from '@/model/types';
 import { formatCm } from '@/model/units';
 
 export type IssueKind =
@@ -38,10 +47,43 @@ export function isOutside(d: Design, sheetWidthMm: number): boolean {
   );
 }
 
-/** Every problem on the sheet, keyed by design id. Designs with no issue are absent. */
+export type Masks = ReadonlyMap<string, ShapeMask>;
+
+/** The last answer per sheet: views ask again on every render, and sheets never change. */
+const remembered = new WeakMap<
+  Sheet,
+  {
+    assets: ReadonlyMap<string, ImageAsset>;
+    masks: Masks | undefined;
+    issues: Map<string, Issue[]>;
+  }
+>();
+
+/**
+ * Every problem on the sheet, keyed by design id. Designs with no issue are absent.
+ *
+ * Args:
+ *   sheet: The sheet to check.
+ *   assets: The images, for the sharpness and transparency checks.
+ *   masks: Ink masks by asset id. With Real shape spacing the "too close" check measures
+ *     between ink outlines; a design whose mask is missing counts as its whole rectangle.
+ */
 export function findIssues(
   sheet: Sheet,
   assets: ReadonlyMap<string, ImageAsset>,
+  masks?: Masks,
+): Map<string, Issue[]> {
+  const known = remembered.get(sheet);
+  if (known && known.assets === assets && known.masks === masks) return known.issues;
+  const issues = computeIssues(sheet, assets, masks);
+  remembered.set(sheet, { assets, masks, issues });
+  return issues;
+}
+
+function computeIssues(
+  sheet: Sheet,
+  assets: ReadonlyMap<string, ImageAsset>,
+  masks: Masks | undefined,
 ): Map<string, Issue[]> {
   const result = new Map<string, Issue[]>();
   const add = (id: string, issue: Issue): void => {
@@ -72,11 +114,34 @@ export function findIssues(
     }
   }
 
-  for (const [a, b] of tooClosePairs(sheet)) {
+  for (const [a, b] of tooClosePairs(sheet, masks)) {
     add(a, { kind: 'too-close', otherId: b });
     add(b, { kind: 'too-close', otherId: a });
   }
   return result;
+}
+
+interface Swept {
+  d: Design;
+  order: number;
+  box: Box;
+  poly: Point[];
+  /** The design's ink cells, worked out the first time a pair needs them. */
+  pose?: Posed;
+}
+
+/** Stands in for a mask that is not there yet: all ink, so the design counts as its rectangle. */
+const ALL_INK = fullMask();
+
+/**
+ * True when the ink of two designs may be closer than the gap. Their rectangles are already
+ * known to be: ink never leaves its rectangle, so rectangles a gap apart need no second look.
+ * A design without a mask yet counts as all ink, exactly as the shape packer places it.
+ */
+function inkCloser(p: Swept, q: Swept, gapMm: number, masks: Masks): boolean {
+  p.pose ??= poseCells(p.d, masks.get(p.d.assetId) ?? ALL_INK);
+  q.pose ??= poseCells(q.d, masks.get(q.d.assetId) ?? ALL_INK);
+  return inkTooClose(p.pose, q.pose, gapMm);
 }
 
 /**
@@ -84,10 +149,11 @@ export function findIssues(
  * edge of their footprint, and a pair is only measured exactly when the footprints, grown by
  * the gap, overlap. That keeps hundreds of designs fast.
  */
-function tooClosePairs(sheet: Sheet): Array<[string, string]> {
+function tooClosePairs(sheet: Sheet, masks: Masks | undefined): Array<[string, string]> {
   const gap = sheet.settings.gapMm - EDGE_EPSILON_MM;
   const split = sheet.settings.layout === 'split';
-  const items = sheet.designs
+  const shape = sheet.settings.spacing === 'shape' && masks !== undefined;
+  const items: Swept[] = sheet.designs
     .map((d, order) => ({ d, order, box: footprint(d), poly: corners(d) }))
     .toSorted((p, q) => p.box.minX - q.box.minX);
   const pairs: Array<{ a: number; b: number; ids: [string, string] }> = [];
@@ -100,7 +166,8 @@ function tooClosePairs(sheet: Sheet): Array<[string, string]> {
       if (q.box.minX >= p.box.maxX + gap) break;
       if (q.box.minY >= p.box.maxY + gap || p.box.minY >= q.box.maxY + gap) continue;
       if (split && onDifferentPages(p.d, q.d, sheet.settings)) continue;
-      if (polygonDistance(p.poly, q.poly) < gap) {
+      if (polygonDistance(p.poly, q.poly) >= gap) continue;
+      if (!shape || inkCloser(p, q, sheet.settings.gapMm, masks)) {
         const [first, second] = p.order < q.order ? [p, q] : [q, p];
         pairs.push({ a: first.order, b: second.order, ids: [first.d.id, second.d.id] });
       }

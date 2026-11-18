@@ -36,7 +36,9 @@ export async function openApp(page: Page): Promise<void> {
   await page.waitForSelector('body[data-ready="true"]');
 }
 
-type SerialState = Omit<AppState, 'assets'> & {
+type SerialState = Omit<AppState, 'assets' | 'masks'> & {
+  /** Ids of the images whose ink mask is ready. */
+  masks: string[];
   assets: Array<{
     id: string;
     name: string;
@@ -52,6 +54,7 @@ export async function state(page: Page): Promise<SerialState> {
     return {
       sheet: s.sheet,
       selection: [...s.selection],
+      masks: [...s.masks.keys()],
       assets: [...s.assets.values()].map(({ id, name, widthPx, heightPx, hasTransparency }) => ({
         id,
         name,
@@ -151,13 +154,17 @@ export async function downloadBytes(download: Download): Promise<Buffer> {
 }
 
 /**
- * Click Arrange and wait until its new layout is committed. Arrange commits after two frames and
- * then says "Arranged"; an earlier "Arranged" message is waited out first, so it cannot be
- * mistaken for this one.
+ * Click Arrange and wait until it is done. Arrange searches in a worker for up to a few seconds,
+ * commits the layout (or keeps the one on the sheet when it finds nothing shorter) and then says
+ * "Arranged"; an earlier "Arranged" message is waited out first, so it cannot be mistaken for
+ * this one.
  */
 export async function arrange(page: Page): Promise<void> {
   const done = page.locator('.toast', { hasText: 'Arranged' });
-  await expect(done).toHaveCount(0, { timeout: 10_000 });
+  // Close earlier Arrange messages (some stay 12 s), so this run's message is the only one.
+  for (const close of await done.locator('button[aria-label="Dismiss"]').all()) await close.click();
+  await expect(done).toHaveCount(0);
   await page.click('#arrange');
-  await expect(done).toHaveCount(1);
+  await expect(done).toHaveCount(1, { timeout: 20_000 });
+  await expect(page.locator('#arrange-dialog')).toBeHidden();
 }

@@ -5,7 +5,9 @@
 import { describe, expect, it } from 'vitest';
 import { autoArrange, placeCopies, MAX_COPIES } from '@/model/arrange';
 import { findIssues } from '@/model/checks';
+import { smartArrange } from '@/model/smart-arrange';
 import { DEFAULT_SETTINGS, type Design, type ImageAsset, type Sheet } from '@/model/types';
+import { SHAPES } from './shapes';
 
 function rng(seed: number): () => number {
   let s = seed >>> 0;
@@ -31,7 +33,8 @@ function randomSheet(n: number, seed: number): Sheet {
     flipY: false,
     locked: false,
   }));
-  return { designs, settings: { ...DEFAULT_SETTINGS } };
+  // These budgets are for rectangles; the Real shape cases set their own spacing.
+  return { designs, settings: { ...DEFAULT_SETTINGS, spacing: 'box' } };
 }
 
 /** Shared CI runners are slower and noisier than a desktop; budgets stretch there. */
@@ -78,6 +81,45 @@ describe('performance budgets (400 designs)', () => {
     const s = autoArrange(randomSheet(400, 3), 'all', { allowRotate: false });
     findIssues(s, assets);
     expect(time(() => findIssues(s, assets))).toBeLessThan(20 * BUDGET_FACTOR);
+  });
+
+  it('checks 400 designs for issues in Real shape in under 1 s cold and 20 ms warm', () => {
+    const kinds = [...SHAPES.keys()];
+    const boxes = autoArrange(randomSheet(400, 5), 'all', { allowRotate: false });
+    // Pulled 30% closer together, so hundreds of pairs have overlapping rectangles and the ink
+    // really is measured.
+    const crowded = (): Sheet => ({
+      designs: boxes.designs.map((d, i) => ({
+        ...d,
+        assetId: kinds[i % kinds.length] as string,
+        xMm: d.xMm * 0.7 + 0.137,
+        yMm: d.yMm * 0.7 + 0.291,
+      })),
+      settings: { ...boxes.settings, spacing: 'shape' },
+    });
+    const sheet = crowded();
+    const start = performance.now();
+    const issues = findIssues(sheet, assets, SHAPES);
+    expect(performance.now() - start).toBeLessThan(1000 * BUDGET_FACTOR);
+    expect(issues.size).toBeGreaterThan(100);
+    expect(time(() => findIssues(sheet, assets, SHAPES))).toBeLessThan(20 * BUDGET_FACTOR);
+    // A new sheet object with the same designs (a move elsewhere): the rasters are remembered.
+    expect(time(() => findIssues({ ...sheet }, assets, SHAPES))).toBeLessThan(100 * BUDGET_FACTOR);
+  });
+
+  it('arranges 200 designs in Real shape within its time budget', () => {
+    const kinds = [...SHAPES.keys()];
+    const base = randomSheet(200, 6);
+    const sheet: Sheet = {
+      designs: base.designs.map((d, i) => ({ ...d, assetId: kinds[i % kinds.length] as string })),
+      settings: { ...base.settings, spacing: 'shape' },
+    };
+    const start = performance.now();
+    const out = smartArrange(sheet, 'all', { allowRotate: true, masks: SHAPES, budgetMs: 2000 });
+    // The budget is checked between designs, so the overrun is one placement at most.
+    expect(performance.now() - start).toBeLessThan(2000 + 500 * BUDGET_FACTOR);
+    const close = [...findIssues(out, assets, SHAPES).values()].flat();
+    expect(close.filter((i) => i.kind === 'too-close')).toEqual([]);
   });
 
   it('adds copies up to the cap and no further', () => {

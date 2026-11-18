@@ -51,12 +51,18 @@ no pricing.
     reference), as one undoable step; designs that end up across a split are flagged, with a
     one-click "Move onto a sheet". The 40 mm gap between sheets in the editor is part of the
     saved file format. Up to 50 sheets.
-4b. **Spacing** (amended v4): **Rectangles** (default, as before) or **Real shape**. Real shape
-    measures the cutting gap between the designs' ink outlines instead of their rectangles, so
-    Arrange can nest designs into each other's empty corners; the "too close" check measures the
-    same way. Outlines are conservative (never smaller than the ink), so a pair that is too
-    close is never missed: the measured gap is never larger than the real one. The side edges
-    and the splits still use each design's rectangle; Real shape only changes the gap.
+4b. **Spacing** (amended v4 and v5): the cutting gap is measured between **Rectangles**
+    (default, the owner's choice of 2026-11-18, confirmed after the Arrange results) or between
+    **Real shapes**. Real shapes measures the gap between the designs' ink outlines instead of
+    their rectangles, so Arrange can nest designs into each other's empty corners; the "too
+    close" check measures the same way, with the same code. Outlines are conservative (never
+    smaller than the ink: a 1 mm grid, every cell any visible pixel touches), so a pair that is
+    too close is never missed: the measured gap is never larger than the real one, and may be
+    up to about 2 mm smaller. The side edges and the splits still use each design's rectangle;
+    Real shapes only changes the gap. The choice is saved with the sheet and remembered for new
+    sheets. Sheets saved before the choice existed all say Rectangles without anyone having
+    chosen it, so they open with Real shapes for as long as the user has never picked a spacing
+    in this browser; after that, a saved sheet opens as saved.
 
 ### Designs
 
@@ -70,8 +76,17 @@ no pricing.
    rename; bring forward / send back.
 8. Multi-select (drag a box, Shift+click, Ctrl+A): move, delete, duplicate together; align
    (left, centre, right, top, middle, bottom) and distribute evenly.
-9. **Auto-arrange**: pack all designs (or the selection) top to bottom within the sheet width with
-   the cutting gap, optionally allowing 90° rotation, to save film. Undoable.
+9. **Arrange** (rewritten v5; the owner: "the most important feature"): pack all designs (or
+   the selection) into the least film. It is a search, not one pass: for about 4 seconds it
+   tries many orders and turns (quarter turns, when turning is allowed; never a mirror image)
+   and keeps the shortest layout, in a background worker with a progress dialog and a Stop
+   button that keeps the best so far. It follows the Spacing setting: with Rectangles the
+   rectangles keep the gap; with Real shapes the rectangles may overlap and the ink keeps the
+   gap. Locked designs, and unselected ones when a selection is arranged, stay where they are.
+   A layout that has no placement problem is only ever replaced by a shorter one, so Arrange
+   never makes a good layout worse; arranging again continues from the layout on the sheet.
+   One Arrange is one undo step. Add copies and new images still use the quick rectangle
+   packer.
 
 ### Measurements and checks
 
@@ -180,7 +195,8 @@ no pricing.
 ## Calls made by Claude (open to correction)
 
 DPI thresholds; new image at its 300 DPI size, shrunk to fit; length rounded up to the cm;
-500 cm cap; English UI; gap measured on rectangles by default (Real shape optional since v4); background view-only (owner's last
+500 cm cap; English UI; gap measured between real shapes for new sheets (v5; rectangles before);
+Arrange turns by quarter turns only (other angles never won on the owner's job); background view-only (owner's last
 word on it); auto-arrange added back because the owner asked for help organizing; Fixed length
 mode; PNG DPI and PDF quality options; MIT licence; FOGRA39 free profile; desktop Chrome/Edge as
 the supported target.

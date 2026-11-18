@@ -8,6 +8,7 @@ import {
   MIN_WIDTH_MM,
   type ExportOptions,
   type Preset,
+  type Spacing,
 } from '@/model/types';
 
 export type Background = 'transparent' | 'white' | 'black' | 'custom';
@@ -17,6 +18,11 @@ export interface Prefs {
   customColor: string;
   grid: boolean;
   allowRotate: boolean;
+  /**
+   * How the user last chose to measure the cutting gap, or null when they never chose. New
+   * sheets follow it; without a choice they measure between real shapes.
+   */
+  spacing: Spacing | null;
   presets: Preset[];
   exportOptions: Omit<ExportOptions, 'fileName'>;
 }
@@ -28,6 +34,7 @@ export const DEFAULT_PREFS: Prefs = {
   customColor: '#e8d7c3',
   grid: false,
   allowRotate: true,
+  spacing: null,
   presets: [],
   exportOptions: {
     format: 'pdf',
@@ -78,6 +85,7 @@ export function loadPrefs(): Prefs {
         : DEFAULT_PREFS.customColor,
     grid: r['grid'] === true,
     allowRotate: r['allowRotate'] !== false,
+    spacing: r['spacing'] === 'box' || r['spacing'] === 'shape' ? r['spacing'] : null,
     presets: Array.isArray(r['presets'])
       ? r['presets'].filter(isPreset).map((p) => ({ ...p, builtIn: false }))
       : [],

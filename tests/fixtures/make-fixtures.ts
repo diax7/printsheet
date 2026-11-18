@@ -78,6 +78,12 @@ function main(): void {
       return [240, 240, 240, (x * 7 + y * 13) % 97 === 0 ? 9 : 3];
     }),
   );
+  // An L, 900 px square with arms 180 px thick: three quarters of its rectangle is empty, so two
+  // of them nest when the cutting gap is measured between real shapes.
+  writeFileSync(
+    join(OUT, 'ell.png'),
+    png(900, 900, (x, y) => (x < 180 || y >= 720 ? [20, 110, 200, 255] : [0, 0, 0, 0])),
+  );
   writeFileSync(join(OUT, 'not-an-image.png'), new TextEncoder().encode('this is not a PNG'));
   console.log(`Fixtures written to ${OUT}`);
 }

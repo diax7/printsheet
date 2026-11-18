@@ -3,11 +3,18 @@
  * selection. Views subscribe and re-render from it; they change it only through these methods.
  */
 import { History } from '@/store/history';
+import type { ShapeMask } from '@/model/mask';
 import type { ImageAsset, Sheet } from '@/model/types';
 
 export interface AppState {
   sheet: Sheet;
   assets: ReadonlyMap<string, ImageAsset>;
+  /**
+   * Ink masks by image id, for Real shape spacing. Worked out from the images, so they are not
+   * part of the undo history or of what is saved; a new map each time one arrives, so views
+   * that depend on them know to look again.
+   */
+  masks: ReadonlyMap<string, ShapeMask>;
   selection: readonly string[];
 }
 
@@ -25,6 +32,7 @@ export interface Store {
   commit(next: Sheet, options?: CommitOptions): void;
   setSelection(ids: readonly string[]): void;
   addAssets(assets: readonly ImageAsset[]): void;
+  addMasks(masks: ReadonlyMap<string, ShapeMask>): void;
   load(sheet: Sheet, assets: ReadonlyMap<string, ImageAsset>): void;
   undo(): void;
   redo(): void;
@@ -54,7 +62,7 @@ export function createStore(
   clock: { now: () => number } = { now: () => Date.now() },
 ): Store {
   const history = new History<Sheet>(initial);
-  let state: AppState = { sheet: initial, assets: new Map(), selection: [] };
+  let state: AppState = { sheet: initial, assets: new Map(), masks: new Map(), selection: [] };
   let lastMerge: { key: string; at: number } | null = null;
   const listeners = new Set<Listener>();
 
@@ -103,10 +111,17 @@ export function createStore(
       emit({ ...state, assets: map });
     },
 
+    addMasks(masks) {
+      if (masks.size === 0) return;
+      emit({ ...state, masks: new Map([...state.masks, ...masks]) });
+    },
+
     load(sheet, assets) {
       history.reset(sheet);
       lastMerge = null;
-      emit({ sheet, assets: new Map(assets), selection: [] });
+      // Image ids come from the pixels, so a mask stays right for an image that is still here.
+      const masks = new Map([...state.masks].filter(([id]) => assets.has(id)));
+      emit({ sheet, assets: new Map(assets), masks, selection: [] });
     },
 
     undo: () => travel(history.undo()),

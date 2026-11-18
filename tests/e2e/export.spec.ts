@@ -460,6 +460,8 @@ test('the export draws overlapping designs in the stacking order shown', async (
 /** The cross-check sheet split into short sheets, so its designs land on several of them. */
 async function buildSplitSheet(page: Page): Promise<void> {
   await buildCrossCheckSheet(page);
+  // Gap between rectangles: nested by their real shapes, these few designs fit on one sheet.
+  await page.click('[data-spacing="box"]');
   await page.click('[data-layout="split"]');
   await typeField(page, '#page-length', '10');
   await page

@@ -3,7 +3,7 @@
  * only the first screenful of a long sheet can ever be seen (reported on an iPhone, 2026-11-18).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { addImages, collectErrors, designs, openApp, state, typeField } from './helpers';
+import { addImages, arrange, collectErrors, designs, openApp, state, typeField } from './helpers';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -41,7 +41,7 @@ test('a finger swipe on the canvas scrolls a long sheet on a phone', async ({ pa
     await page.keyboard.press('Control+d');
   }
   await expect.poll(async () => (await designs(page)).length).toBe(8);
-  await page.locator('#arrange').click();
+  await arrange(page);
   await expect
     .poll(async () => Number(await page.locator('#film-meters').textContent()))
     .toBeGreaterThan(1.5);

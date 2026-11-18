@@ -7,7 +7,7 @@
  * cannot be deleted until it is unlocked.
  */
 import { align, distribute, type AlignEdge } from '@/model/align';
-import { autoArrange, moveOntoSheets, MAX_COPIES } from '@/model/arrange';
+import { moveOntoSheets, MAX_COPIES } from '@/model/arrange';
 import { offSheetReason } from '@/model/pages';
 import { findIssues, type Issue } from '@/model/checks';
 import { dpiLevel, effectiveDpi, unionFootprint } from '@/model/geometry';
@@ -33,6 +33,8 @@ interface Ctx {
   commit(next: Sheet): void;
   getAllowRotate(): boolean;
   setAllowRotate(v: boolean): void;
+  /** Starts Arrange for these designs (it runs in the background and commits when done). */
+  arrange(ids: readonly string[]): void;
 }
 
 function iconButton(
@@ -348,7 +350,7 @@ function actionsSection(ctx: Ctx, ids: string[], locked: boolean): HTMLElement {
 
 function renderSingle(ctx: Ctx, d: Design): HTMLElement {
   const { sheet, assets } = ctx.store.get();
-  const issues = findIssues(sheet, assets).get(d.id) ?? [];
+  const issues = findIssues(sheet, assets, ctx.store.get().masks).get(d.id) ?? [];
   return el(
     'div',
     { class: 'inspector' },
@@ -411,11 +413,9 @@ function renderMany(ctx: Ctx, ids: string[]): HTMLElement {
         'label',
         { class: 'checkbox', style: 'margin-bottom:8px' },
         allowRotate,
-        'Allow turning 90° to save film',
+        'Allow quarter turns to save film',
       ),
-      textButton('arrange', 'Arrange selection', () =>
-        ctx.commit(autoArrange(current(), ids, { allowRotate: ctx.getAllowRotate() })),
-      ),
+      textButton('arrange', 'Arrange selection', () => ctx.arrange(ids)),
     ),
     section(
       el(
@@ -465,15 +465,22 @@ export function mountInspector(
   store: Store,
   getAllowRotate: () => boolean,
   setAllowRotate: (v: boolean) => void,
+  arrange: (ids: readonly string[]) => void,
 ): { render(): void } {
   const host = byId('inspector');
-  const ctx: Ctx = { store, commit: (next) => store.commit(next), getAllowRotate, setAllowRotate };
+  const ctx: Ctx = {
+    store,
+    commit: (next) => store.commit(next),
+    getAllowRotate,
+    setAllowRotate,
+    arrange,
+  };
   let lastKey = '';
 
   function render(): void {
-    const { sheet, selection, assets } = store.get();
+    const { sheet, selection, assets, masks } = store.get();
     const chosen = sheet.designs.filter((d) => selection.includes(d.id));
-    const issues = [...findIssues(sheet, assets).entries()].filter(([id]) =>
+    const issues = [...findIssues(sheet, assets, masks).entries()].filter(([id]) =>
       selection.includes(id),
     );
     const key = JSON.stringify([chosen, selection.length, issues, sheet.settings]);

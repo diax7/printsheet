@@ -4,7 +4,7 @@
  */
 // oxlint-disable-next-line import/no-unassigned-import -- the stylesheet is imported for its side effect.
 import '@/styles.css';
-import { autoArrange, moveOntoSheets } from '@/model/arrange';
+import { moveOntoSheets } from '@/model/arrange';
 import { footprint, initialSize, unionFootprint } from '@/model/geometry';
 import { addDesigns, roomForDesigns, updateDesigns } from '@/model/ops';
 import {
@@ -13,6 +13,7 @@ import {
   type Design,
   type ImageAsset,
   type Sheet,
+  type Spacing,
 } from '@/model/types';
 import { mountCanvas } from '@/editor/canvas';
 import { drawRulers } from '@/editor/rulers';
@@ -22,6 +23,8 @@ import { deleteUnlocked, duplicateSelected, newId } from '@/editor/actions';
 import { openExportDialog } from '@/editor/export-dialog';
 import { byId, confirmDialog, el, hydrateIcons, isTyping, toast } from '@/editor/dom';
 import { importFiles } from '@/image/import';
+import { createMaskLoader } from '@/image/masks';
+import { mountArrange } from '@/editor/arrange-run';
 import { evictPreviews, loadPreview } from '@/image/previews';
 import { allPresets, loadPrefs, savePrefs, type Background, type Prefs } from '@/prefs';
 import { createStore } from '@/store/store';
@@ -30,7 +33,7 @@ import { parseProject, serializeProject, PROJECT_EXTENSION } from '@/store/proje
 import { download } from '@/export/client';
 import { safeFileName } from '@/editor/export-dialog';
 import { Packer } from '@/model/packer';
-import { bandsFor, fallbackTop, filmLengthMm } from '@/model/pages';
+import { bandsFor, fallbackTop } from '@/model/pages';
 import { mountLayoutControls } from '@/editor/layout-controls';
 
 const emptySheet = (settings = DEFAULT_SETTINGS): Sheet => ({
@@ -46,7 +49,12 @@ function setPrefs(next: Prefs): void {
   renderAll();
 }
 
-const store = createStore(emptySheet());
+/** A new sheet measures the cutting gap the way the user last chose (rectangles at first). */
+const newSheetSpacing = (): Spacing => prefs.spacing ?? DEFAULT_SETTINGS.spacing;
+
+const store = createStore(emptySheet({ ...DEFAULT_SETTINGS, spacing: newSheetSpacing() }));
+const maskLoader = createMaskLoader(store);
+const arrange = mountArrange({ store, masks: maskLoader, getAllowRotate: () => prefs.allowRotate });
 hydrateIcons(document);
 
 const canvasView = mountCanvas(
@@ -64,7 +72,10 @@ const canvasView = mountCanvas(
     canvasEl: byId<HTMLCanvasElement>('sheet-canvas'),
   },
 );
-const panel = mountPanel(store, getPrefs, { onPresetMenu: openPresetDialog });
+const panel = mountPanel(store, getPrefs, {
+  onPresetMenu: openPresetDialog,
+  onSpacing: (spacing) => setPrefs({ ...prefs, spacing }),
+});
 const layoutControls = mountLayoutControls(store, {
   onCrossing: (ids) =>
     toast(
@@ -86,6 +97,7 @@ const inspector = mountInspector(
   store,
   () => prefs.allowRotate,
   (v) => setPrefs({ ...prefs, allowRotate: v }),
+  (ids) => void arrange.run(ids),
 );
 const rulerTop = byId<HTMLCanvasElement>('ruler-top');
 const rulerLeft = byId<HTMLCanvasElement>('ruler-left');
@@ -131,6 +143,8 @@ store.subscribe((state, previous) => {
   if (state.sheet !== previous.sheet || state.assets !== previous.assets) {
     autosave.schedule(state.sheet, state.assets, store.referencedAssetIds());
   }
+  // Images of a saved sheet come back without their ink masks; Real shape spacing needs them.
+  if (state.sheet.settings.spacing === 'shape') maskLoader.want();
 });
 
 /* ---------- Adding images ---------- */
@@ -189,7 +203,7 @@ async function addFiles(files: ReadonlyArray<{ blob: Blob; name: string }>): Pro
   busy.hidden = false;
   busy.textContent = `Reading ${files.length} image${files.length === 1 ? '' : 's'}…`;
   try {
-    const { assets, errors } = await importFiles(files, (done, total) => {
+    const { assets, masks, errors } = await importFiles(files, (done, total) => {
       busy.textContent = `Reading images ${done} of ${total}…`;
     });
     for (const message of errors) toast(message, 'error');
@@ -204,6 +218,7 @@ async function addFiles(files: ReadonlyArray<{ blob: Blob; name: string }>): Pro
     const usable = await withPreviews(assets.slice(0, room));
     if (usable.length === 0) return;
     store.addAssets(usable);
+    store.addMasks(new Map([...masks].filter(([id]) => usable.some((a) => a.id === id))));
     const { sheet, ids } = placeNewDesigns(store.get().sheet, usable);
     store.commit(sheet, { selection: ids });
     const opaque = usable.filter((a) => !a.hasTransparency).length;
@@ -311,30 +326,9 @@ customColor.addEventListener('input', () =>
   setPrefs({ ...prefs, background: 'custom', customColor: customColor.value }),
 );
 byId('grid-toggle').addEventListener('click', () => setPrefs({ ...prefs, grid: !prefs.grid }));
-let arranging = false;
-byId('arrange').addEventListener('click', async () => {
-  if (arranging) return;
-  arranging = true;
-  // Packing hundreds of designs can take a moment: paint "Arranging…" first, hide it after.
-  busy.hidden = false;
-  busy.textContent = 'Arranging…';
-  try {
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const { sheet, selection } = store.get();
-    const ids = selection.length > 1 ? selection : 'all';
-    const before = filmLengthMm(sheet);
-    const next = autoArrange(sheet, ids, { allowRotate: prefs.allowRotate });
-    store.commit(next);
-    const after = filmLengthMm(next);
-    toast(
-      after < before
-        ? `Arranged. The film is now ${(after / 1000).toFixed(2)} m, ${((before - after) / 10).toFixed(0)} cm shorter.`
-        : `Arranged. The film is ${(after / 1000).toFixed(2)} m.`,
-    );
-  } finally {
-    busy.hidden = true;
-    arranging = false;
-  }
+byId('arrange').addEventListener('click', () => {
+  const { selection } = store.get();
+  void arrange.run(selection.length > 1 ? selection : 'all');
 });
 byId('export').addEventListener('click', () => openExportDialog(store, getPrefs, setPrefs));
 
@@ -404,8 +398,9 @@ byId('new-sheet').addEventListener('click', async () => {
     return;
   autosave.pause(false);
   evictPreviews(new Set());
-  // A new sheet keeps the width, length mode and cutting gap you were using.
-  store.load(emptySheet(store.get().sheet.settings), new Map());
+  // A new sheet keeps the width, length mode and cutting gap you were using, and measures the
+  // gap the way you last chose.
+  store.load(emptySheet({ ...store.get().sheet.settings, spacing: newSheetSpacing() }), new Map());
 });
 
 /* ---------- Presets ---------- */

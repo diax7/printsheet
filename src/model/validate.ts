@@ -72,7 +72,9 @@ export function validateSettings(v: unknown): Settings {
       MAX_SHEET_LENGTH_MM,
     ),
     lastPage: oneOf(added('lastPage'), 'last sheet', ['trim', 'full'] as const),
-    spacing: oneOf(added('spacing'), 'spacing', ['box', 'shape'] as const),
+    // Unlike the other added keys, a file from before Real shape existed keeps rectangles: it
+    // was laid out that way, and it opens with the warnings it was saved with.
+    spacing: oneOf(v['spacing'] ?? 'box', 'spacing', ['box', 'shape'] as const),
   };
 }
 

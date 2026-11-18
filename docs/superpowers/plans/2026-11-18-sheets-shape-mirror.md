@@ -184,6 +184,57 @@ packer output passes the check (property, random shapes); two L shapes nest shor
 rectangles; bands respected. E2E: two interlocking designs not flagged in Real shape where
 rectangles are; Arrange in Real shape gives a shorter sheet; stress 200 designs under 2 s.
 
+### As built (2026-11-18), and where it differs from the plan above
+
+The owner then asked for a smart Arrange in both spacing modes ("the most important feature"),
+so Phase 3 grew from "shape spacing" into "shape spacing and an Arrange that searches".
+
+- **Spike result** (the owner's 3.03 m job: 23 designs of 17 images on 58 cm, 5 mm gap, images
+  cleaned of haze as the import now does; new Arrange at its 4 s budget, two runs of six seeds
+  each, on a busy machine). Go: Real shape is about 12% under the rectangle search and 26%
+  under the old Arrange. One click is not always under the hand layout; clicking again only
+  ever shortens it.
+
+  | Layout | Film |
+  | --- | --- |
+  | By hand (12 pairs of rectangles overlap, 3 pairs of ink under 5 mm apart) | 3.03 m |
+  | Old Arrange (one pass, turning allowed) | 3.98 m |
+  | New Arrange, Rectangles | 3.34 to 3.40 m, mean 3.37 m |
+  | New Arrange, Real shapes | 2.83 to 3.03 m, means 2.92 and 2.97 m |
+
+  The rectangles alone need 3.04 m of film before any gap, so no rectangle layout can match the
+  hand layout; the ink alone needs 1.88 m. No mask is near its full rectangle (0.23 to 0.89
+  filled). An alpha threshold would not help: the ink bound moves from 1.90 to 1.89 m.
+- **Arrange is a search** (`model/smart-arrange.ts`): simulated annealing over greedy placements
+  (order, turn pins for rectangles, spot rule for shapes), about 4 s, deterministic for a seed
+  and pass limit. A layout with no placement problem is only replaced by a shorter one.
+- **Turns are quarter turns**, not "0/90/180/270 or finer": 45° and 15° sets were measured on
+  the owner's job and never chosen, while costing most of the time budget. A design that fits a
+  sheet of a split job at no quarter turn is laid diagonally (15° steps).
+- **Default spacing:** Rectangles for new sheets, and saved sheets open exactly as saved. The
+  agent first built Real shapes as the default with a rule switching old saves to it; shown the
+  measured results (Real shapes 2.91 m, Rectangles 3.39 m on his job), the owner chose
+  Rectangles as the default (2026-11-18), so that rule was removed. Real shapes is one click.
+- **Large jobs:** the shape search starts with one placement at each design's own angle, so
+  hundreds of mixed designs still get a nested layout. Measured on a busy machine: 200 mixed
+  designs get about eight shape layouts in 4 s; 400 get one, just in time. Past that the
+  result is the rectangle layout.
+- **Missing masks:** a design without a mask counts as all ink (its rectangle), in the check and
+  in the packer alike, instead of the whole pair falling back to rectangles. Same safety (never
+  misses), and the two cannot disagree.
+- **Agreement by construction:** `poseCells` snaps a footprint corner within 1e-6 cell of a grid
+  line onto it, and caches rasters by position within a cell, so the packer's output is
+  rasterised by the check as the very same bits. No re-check after each placement is needed; a
+  final check of the whole layout remains as a backstop (rectangle layout on failure).
+- **Rectangle short cut:** in Real shape a pair whose rectangles keep the gap is never measured
+  by ink, so rectangle-packed output (Add copies, new images) is never flagged for sitting off
+  the grid.
+- **Packer:** taken cells are stored grown by the gap; the scan runs on a 2, 4 or 8 mm copy of
+  the grid by design size (conservative), with a row-capacity filter, then slides the spot up
+  and left by single cells using only the shape's leading edge cells.
+- **Not built:** a pair-result cache (the per-sheet memo and the raster cache met the budgets),
+  and a per-placement re-check (see above).
+
 ## Review focus
 
 1. Old saves and project files open unchanged; layout and length switches are one undo; the

@@ -14,6 +14,7 @@ import {
   type ImageAsset,
   type Settings,
   type Sheet,
+  type Spacing,
 } from '@/model/types';
 import { readyPreview } from '@/image/previews';
 import { bindNumber, byId, el, icon, revealInOwnBox, setInputValue } from '@/editor/dom';
@@ -45,6 +46,8 @@ function sizeText(sheet: Sheet, lengthMm: number): string {
 
 export interface PanelHandlers {
   onPresetMenu(): void;
+  /** The user chose how the gap is measured; remembered for new sheets. */
+  onSpacing(spacing: Spacing): void;
 }
 
 function renderRow(
@@ -117,6 +120,7 @@ export function mountPanel(
   const gap = byId<HTMLInputElement>('gap');
   const fixedLength = byId<HTMLInputElement>('fixed-length');
   const lengthButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-length]')];
+  const spacingButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-spacing]')];
   const list = byId<HTMLUListElement>('design-list');
   const designCount = byId('design-count');
 
@@ -137,6 +141,14 @@ export function mountPanel(
     if (chosen) setSettings({ sheetWidthMm: chosen.widthMm });
   });
   byId('preset-menu').addEventListener('click', handlers.onPresetMenu);
+  for (const button of spacingButtons) {
+    button.addEventListener('click', () => {
+      const spacing: Spacing = button.dataset['spacing'] === 'box' ? 'box' : 'shape';
+      if (spacing === store.get().sheet.settings.spacing) return;
+      setSettings({ spacing });
+      handlers.onSpacing(spacing);
+    });
+  }
   for (const button of lengthButtons) {
     button.addEventListener('click', () => {
       const mode = button.dataset['length'] === 'fixed' ? 'fixed' : 'auto';
@@ -180,7 +192,7 @@ export function mountPanel(
     const state: AppState = store.get();
     const { sheet, assets, selection } = state;
     const { settings } = sheet;
-    const issues = findIssues(sheet, assets);
+    const issues = findIssues(sheet, assets, state.masks);
     const length = sheet.designs.length ? filmLengthMm(sheet) : 0;
 
     meters.textContent = (length / 1000).toFixed(2);
@@ -227,6 +239,9 @@ export function mountPanel(
     setInputValue(fixedLength, formatCm(settings.fixedLengthMm));
     for (const button of lengthButtons) {
       button.setAttribute('aria-checked', String(button.dataset['length'] === settings.lengthMode));
+    }
+    for (const button of spacingButtons) {
+      button.setAttribute('aria-checked', String(button.dataset['spacing'] === settings.spacing));
     }
 
     designCount.textContent = String(sheet.designs.length);

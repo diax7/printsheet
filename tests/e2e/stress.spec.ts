@@ -5,6 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   addImages,
+  arrange,
   collectErrors,
   designs,
   downloadBytes,
@@ -101,7 +102,8 @@ test('handles 400 designs: copies, arrange, select all, move and export @stress'
     await page.locator('#scroller').focus();
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Escape');
-    await page.click('#arrange');
+    // The search runs in a worker: the page must stay responsive for all of it.
+    await arrange(page);
   });
   expect(await designs(page)).toHaveLength(400);
   await expect(page.locator('.flag.danger')).toHaveCount(0);
