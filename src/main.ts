@@ -39,6 +39,7 @@ import { mountActionBar } from '@/editor/action-bar';
 import { mountSpacePan } from '@/editor/space-pan';
 import { mountShortcutsKey } from '@/editor/shortcuts';
 import { mountTopbar } from '@/editor/topbar';
+import { mountPhoneShell } from '@/editor/phone-shell';
 
 const emptySheet = (settings = DEFAULT_SETTINGS): Sheet => ({
   designs: [],
@@ -103,14 +104,16 @@ const inspector = mountInspector(
   (v) => setPrefs({ ...prefs, allowRotate: v }),
   (ids) => void arrange.run(ids),
 );
-mountActionBar({
+const selectionDeps = {
   store,
   view: canvasView,
   overlay: byId('stage-overlay'),
   scroller: byId('scroller'),
   surface: byId('viewport'),
-  arrange: (ids) => void arrange.run(ids),
-});
+  arrange: (ids: readonly string[]) => void arrange.run(ids),
+};
+mountActionBar(selectionDeps);
+mountPhoneShell({ ...selectionDeps, app: byId('app'), stage: byId('stage') });
 mountSpacePan(canvasView, byId('viewport'));
 mountShortcutsKey();
 const topbar = mountTopbar(store);

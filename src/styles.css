@@ -343,6 +343,10 @@ select {
 .panel-right {
   grid-area: right;
   border-inline-start: 1px solid var(--line);
+}
+
+/* The inspector keeps its own spacing wherever it is shown (the right panel, a phone sheet). */
+.inspector {
   padding: 16px;
 }
 
@@ -1174,7 +1178,7 @@ progress {
   .file-group .file-menu-btn {
     display: inline-flex;
   }
-  .file-actions {
+  .file-group .file-actions {
     display: none;
     position: absolute;
     top: calc(100% + 6px);
@@ -1192,7 +1196,7 @@ progress {
   .file-group.open .file-actions {
     display: flex;
   }
-  .file-actions .btn {
+  .file-group .file-actions .btn {
     justify-content: flex-start;
     color: var(--ink);
   }
@@ -1232,51 +1236,264 @@ progress {
   }
 }
 
+/* Phone layout (phone-shell.ts): the bottom bar and the sheets exist only below 821 px. */
+.phone-bar {
+  display: none;
+}
+
+/* Extra room below a short sheet, so a design can scroll up above an open bottom sheet. */
+.scroller::after {
+  content: '';
+  display: block;
+  height: var(--sheet-room, 0);
+}
+
+.bottom-sheet {
+  --phone-bar-h: 60px;
+  position: fixed;
+  inset-inline: 0;
+  bottom: calc(var(--phone-bar-h) + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  max-height: 50dvh;
+  border-top: 1px solid var(--line);
+  border-radius: 14px 14px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -10px 30px rgba(20, 30, 25, 0.22);
+  transform: translateY(calc(var(--sheet-drag, 0px) - var(--sheet-lift, 0px)));
+  touch-action: manipulation;
+}
+
+.sheet-handle {
+  flex: none;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sheet-handle::before {
+  content: '';
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.sheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 6px 16px;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 720;
+}
+
+.sheet-head h2:focus {
+  outline: none;
+}
+
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--line);
+}
+
+.sheet-group {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-group h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.sheet-group .file-actions,
+.sheet-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The multi-select boxes of the design list are a phone control (phone-shell.ts). */
+.design-check-hit {
+  display: none;
+}
+
+.phone-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 56px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: var(--radius-m);
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+.phone-btn svg {
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+}
+
+.phone-btn[aria-expanded='true'] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.phone-btn:disabled {
+  opacity: 0.4;
+}
+
+.phone-btn-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 820px) {
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+  body {
+    overflow: hidden;
+  }
+  /* One screen: top bar, the sheet, bottom bar. The page itself never scrolls. */
   .app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(320px, 1fr) auto 28px;
-    grid-template-areas: 'top' 'left' 'stage' 'right' 'status';
-    height: auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'top' 'stage' 'phonebar';
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
   }
-  .panel-left,
+  .statusbar,
+  .action-bar {
+    display: none !important;
+  }
+  /*
+   * Hidden once its sections have moved into the sheets; until then (a field in it still has
+   * focus, so the move waits) it stays, as hiding it would take the focus away.
+   */
+  .panel-left:not(:has(section)) {
+    display: none;
+  }
+  .design-item {
+    grid-template-columns: auto 40px minmax(0, 1fr) auto;
+  }
+  .design-check-hit {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: -4px -6px -4px -8px;
+    cursor: pointer;
+  }
+  .design-check {
+    display: block;
+    width: 24px;
+    height: 24px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+  /* The sheets carry these titles themselves. */
+  .designs .group-head,
+  #sheet-heading {
+    display: none;
+  }
   .panel-right {
     border: 0;
-    border-bottom: 1px solid var(--line);
   }
-  /* Scrolled to, the sheet fills nearly the whole phone screen (svh leaves out Safari's bars). */
-  .stage {
-    height: 88vh;
-    height: 92svh;
-  }
-  /* On a phone the tools get their own row, so zoom and undo stay within reach. */
+  /* Top bar: logo, film metres, Undo, Redo, Export. */
   .topbar {
-    flex-wrap: wrap;
-    row-gap: 6px;
-    padding: 6px 12px;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+  .brand span,
+  .file-group,
+  #add-images,
+  .topbar .sep,
+  #arrange,
+  .top-film-word {
+    display: none;
   }
   .topbar .toolbar {
-    order: 3;
-    flex: 1 0 100%;
+    flex: none;
+    overflow: visible;
   }
   .topbar-end {
     margin-inline-start: auto;
   }
+  .phone-bar {
+    grid-area: phonebar;
+    display: flex;
+    gap: 2px;
+    padding: 2px 4px env(safe-area-inset-bottom);
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    touch-action: manipulation;
+  }
+  .topbar {
+    touch-action: manipulation;
+  }
   /*
-   * Until the phone layout of phase 2, the first row keeps its old size: the logo without the
-   * name, and no film chip (the panel right below shows the film length).
+   * One finger still scrolls the sheet, but a pinch no longer zooms the whole page, until the
+   * phase 3 gestures take the canvas over. Fabric writes touch-action on the canvases itself,
+   * so this has to win over its inline style.
    */
-  .brand span,
-  .top-film {
-    display: none;
+  .upper-canvas,
+  .lower-canvas {
+    touch-action: pan-x pan-y !important;
   }
-  /* With nothing selected the right panel only holds desktop help and keyboard shortcuts. */
-  .panel-right:has(> .inspector-empty) {
-    display: none;
+  /* The busy message, moved over the sheet, floats under the top bar. */
+  .busy {
+    position: absolute;
+    top: 32px;
+    left: 50%;
+    z-index: 4;
+    transform: translateX(-50%);
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: 0 4px 14px rgba(20, 30, 25, 0.2);
   }
-  /* Phones get their own bottom bar for the selection (phase 2), not the floating one. */
-  .action-bar {
-    display: none !important;
+  .toasts {
+    bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+  /* In the Size sheet the fields matter more than a big preview: they show without scrolling. */
+  .preview-box {
+    height: 56px;
+  }
+  .preview-box img {
+    max-height: 54px;
+  }
+  .big-size {
+    font-size: 18px;
   }
 }
 
@@ -1285,9 +1502,23 @@ progress {
   .bar-btn,
   .menu-item,
   .file-menu-btn,
-  .file-actions .btn {
+  .file-actions .btn,
+  .sheet-tools > button,
+  .sheet-head .icon-btn,
+  #about {
     min-width: 44px;
     min-height: 44px;
+  }
+  /* The background swatches in the phone's More sheet. */
+  .sheet-tools .swatch {
+    width: 44px;
+    height: 44px;
+  }
+  /* 16 px or more, so iPhone Safari does not zoom in when a field gets focus. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
 

@@ -1,11 +1,15 @@
 /**
- * On a phone the sheet sits in a scroll area below the panel. A finger swipe must scroll it, or
- * only the first screenful of a long sheet can ever be seen (reported on an iPhone, 2026-11-18).
+ * On a phone the sheet fills the screen between the top and bottom bars. A finger swipe must
+ * scroll it, or only the first screenful of a long sheet can ever be seen (reported on an iPhone,
+ * 2026-11-18); the page itself must never jump.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { addImages, arrange, collectErrors, designs, openApp, state, typeField } from './helpers';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+const barButton = (page: Page, name: string): ReturnType<Page['locator']> =>
+  page.locator('#phone-bar').getByRole('button', { name, exact: true });
 
 let errors: string[] = [];
 test.beforeEach(async ({ page, browserName }) => {
@@ -34,6 +38,7 @@ async function swipeUp(page: Page, x: number, y: number, distance: number): Prom
 test('a finger swipe on the canvas scrolls a long sheet on a phone', async ({ page }) => {
   // A sheet about two metres long: big designs, two to a row.
   await addImages(page, ['f-shape.png']);
+  await barButton(page, 'Size').click();
   await typeField(page, '#insp-width', '25');
   await page.keyboard.press('Escape');
   for (let i = 0; i < 3; i++) {
@@ -41,7 +46,8 @@ test('a finger swipe on the canvas scrolls a long sheet on a phone', async ({ pa
     await page.keyboard.press('Control+d');
   }
   await expect.poll(async () => (await designs(page)).length).toBe(8);
-  await arrange(page);
+  await page.keyboard.press('Escape');
+  await arrange(page, () => barButton(page, 'Arrange').click());
   await expect
     .poll(async () => Number(await page.locator('#film-meters').textContent()))
     .toBeGreaterThan(1.5);
@@ -58,7 +64,8 @@ test('a finger swipe on the canvas scrolls a long sheet on a phone', async ({ pa
   await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(before + 50);
 });
 
-test('the zoom buttons can be reached on a phone', async ({ page }) => {
+test('the zoom buttons can be reached on a phone, in More', async ({ page }) => {
+  await barButton(page, 'More').click();
   for (const id of ['#zoom-out', '#zoom-in', '#zoom-fit']) {
     await expect(page.locator(id)).toBeInViewport();
   }
@@ -96,24 +103,14 @@ test('tapping a design keeps the page where it is (no jump to the list)', async 
 
 test('the "Nothing selected" help and shortcuts are not shown on a phone', async ({ page }) => {
   await addImages(page, ['f-shape.png']);
-  await expect(page.locator('#inspector')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect.poll(async () => (await state(page)).selection).toEqual([]);
   await expect(page.locator('#inspector')).toBeHidden();
-  // A selected design still gets its size controls.
+  // A selected design still gets its size controls, in the Size sheet.
+  await barButton(page, 'Designs').click();
   await page.locator('.design-item').first().click();
+  await barButton(page, 'Size').click();
   await expect(page.locator('#insp-width')).toBeVisible();
-});
-
-test('the File menu, Arrange and Export share the first row of the top bar', async ({ page }) => {
-  const middles = await Promise.all(
-    ['#file-menu', '#arrange', '#export'].map(async (id) => {
-      const box = await page.locator(id).boundingBox();
-      return box ? box.y + box.height / 2 : NaN;
-    }),
-  );
-  for (const middle of middles) expect(middle).toBeCloseTo(middles[0] ?? NaN, 0);
-  await expect(page.locator('#action-bar')).toBeHidden();
 });
 
 test('Escape in the right-click menu gives focus back to the sheet, as the bar is hidden', async ({
@@ -140,4 +137,15 @@ test('Escape in the right-click menu gives focus back to the sheet, as the bar i
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.locator('#scroller')).toBeFocused();
+});
+
+test('the canvas lets a finger scroll but not pinch-zoom the page', async ({ page }) => {
+  // Until the gestures of phase 3, one finger scrolls the sheet; the page itself must not zoom.
+  const actions = await page.evaluate(() =>
+    ['.upper-canvas', '.lower-canvas'].map((selector) => {
+      const canvas = document.querySelector(selector);
+      return canvas ? getComputedStyle(canvas).touchAction : 'missing';
+    }),
+  );
+  expect(actions).toEqual(['pan-x pan-y', 'pan-x pan-y']);
 });

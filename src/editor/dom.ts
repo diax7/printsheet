@@ -34,6 +34,9 @@ const PATHS: Record<string, string> = {
   warning: 'M12 3 2 21h20L12 3zM12 10v5M12 18h.01',
   close: 'M6 6l12 12M18 6 6 18',
   copies: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  resize: 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7',
+  list: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
+  sheet: 'M6 3h12v18H6zM9 7h6M9 11h6M9 15h3',
 };
 
 /** An inline SVG icon (stroke style). Unknown names render nothing. */

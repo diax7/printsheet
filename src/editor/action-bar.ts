@@ -38,7 +38,7 @@ export interface ActionBarDeps {
   arrange(ids: readonly string[]): void;
 }
 
-interface BarButton {
+export interface BarButton {
   action: string;
   icon: string;
   label: string;
@@ -54,7 +54,7 @@ const selected = (store: Store): Design[] => {
   return sheet.designs.filter((d) => selection.includes(d.id));
 };
 
-function singleButtons(deps: ActionBarDeps, d: Design): BarButton[] {
+export function singleButtons(deps: ActionBarDeps, d: Design): BarButton[] {
   const { store } = deps;
   const ids = [d.id];
   return [
@@ -100,7 +100,7 @@ function singleButtons(deps: ActionBarDeps, d: Design): BarButton[] {
   ];
 }
 
-function manyButtons(deps: ActionBarDeps, chosen: Design[]): BarButton[] {
+export function manyButtons(deps: ActionBarDeps, chosen: Design[]): BarButton[] {
   const { store } = deps;
   const ids = chosen.map((d) => d.id);
   const anyLocked = chosen.some((d) => d.locked);
@@ -147,7 +147,7 @@ function moreButton(deps: ActionBarDeps): BarButton {
   };
 }
 
-function alignEntries(store: Store, ids: string[]): MenuEntry[] {
+export function alignEntries(store: Store, ids: string[]): MenuEntry[] {
   const edges: Array<[AlignEdge, string, string]> = [
     ['left', 'align-left', 'Align left'],
     ['center', 'align-center', 'Centre horizontally'],
@@ -193,7 +193,7 @@ function fixEntry(store: Store, chosen: Design[]): MenuEntry[] {
 }
 
 /** The More menu, worked out when it opens so it always matches the selection. */
-function moreEntries(deps: ActionBarDeps): MenuEntry[] {
+export function moreEntries(deps: ActionBarDeps): MenuEntry[] {
   const { store } = deps;
   const chosen = selected(store);
   const d = chosen[0];

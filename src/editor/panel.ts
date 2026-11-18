@@ -93,6 +93,18 @@ function renderRow(
       tabindex: 0,
       'data-id': d.id,
     },
+    // Ticks this design in or out of a multi-selection; shown on a phone only (phone-shell.ts),
+    // where there is no Ctrl+click. The label around it is the finger-sized target.
+    el(
+      'label',
+      { class: 'design-check-hit' },
+      el('input', {
+        type: 'checkbox',
+        class: 'design-check',
+        'aria-label': `Select ${d.name}`,
+        checked: selected,
+      }),
+    ),
     thumb,
     el(
       'div',

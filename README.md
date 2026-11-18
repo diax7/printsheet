@@ -51,7 +51,8 @@ them).
 
 ## How to use it
 
-1. Open https://printsheet.dhia.app in Chrome or Edge on a computer.
+1. Open https://printsheet.dhia.app in Chrome or Edge on a computer, or in Safari or Chrome on a
+   phone (the phone layout keeps the tools in a bar at the bottom).
 2. Set the sheet width to what your printer or print shop can print (check with them).
 3. Add your designs: **Add images**, drag files onto the sheet, or paste with Ctrl+V. Transparent
    PNG files at 300 DPI give the best result.

@@ -150,7 +150,11 @@ no pricing.
 
 18. Runs fully in the browser. Images never leave the computer; no network requests after the
     page loads. Shipped as one self-contained HTML file that works opened from disk, and hosted
-    at `https://printsheet.dhia.app`. Chrome and Edge on desktop are the supported browsers.
+    at `https://printsheet.dhia.app`. Supported browsers: Chrome and Edge on a computer, and
+    on phones iPhone Safari and Android Chrome. Up to 820 px wide the editor uses a phone
+    layout: one screen with a top bar, the sheet and a bottom bar that follows the selection,
+    and the panels as bottom sheets holding the same controls (amended 2026-11-19, editor plan
+    rev 2).
 19. Fast with many designs: the canvas shows downscaled previews (long side at most 2048 px);
     exports always use the full-resolution originals.
 20. Interface in English.
@@ -160,7 +164,8 @@ no pricing.
 - Text tool, shapes, background removal, image editing, filters.
 - Several separate projects in one file (a project is one job, split into sheets or not).
 - Accounts, cloud storage, ordering, pricing.
-- Phones and tablets (the page must not break on them, but editing targets desktop).
+- Tablets as a target of their own: below 821 px they get the phone layout, wider the
+  computer one (with 44 px touch targets on a touch screen).
 - Arabic interface (possible later).
 
 ## Anti-goals
@@ -199,7 +204,7 @@ DPI thresholds; new image at its 300 DPI size, shrunk to fit; length rounded up 
 Arrange turns by quarter turns only (other angles never won on the owner's job); background view-only (owner's last
 word on it); auto-arrange added back because the owner asked for help organizing; Fixed length
 mode; PNG DPI and PDF quality options; MIT licence; FOGRA39 free profile; desktop Chrome/Edge as
-the supported target.
+the supported target, then phones as well (iPhone Safari, Android Chrome; owner, 2026-11-18).
 
 ## Done means
 
