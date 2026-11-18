@@ -30,7 +30,13 @@ import { formatCm } from '@/model/units';
 import type { Design, Sheet } from '@/model/types';
 import { moveLeavingCopies } from '@/editor/actions';
 import { drawStayingCopies, mountAltDrag } from '@/editor/alt-drag';
-import { designAt, screenBoxOf, type ScreenBox } from '@/editor/canvas-geometry';
+import {
+  designAt,
+  screenBoxOf,
+  touchLandsOnSelection,
+  type ScreenBox,
+} from '@/editor/canvas-geometry';
+import { mountGestureGuard } from '@/editor/gesture-guard';
 import { loadPreview, readyPreview } from '@/image/previews';
 import type { Store } from '@/store/store';
 import type { Prefs } from '@/prefs';
@@ -65,6 +71,16 @@ export interface CanvasView {
   screenBox(ids: readonly string[]): ScreenBox | null;
   /** The id of the topmost design under a page point, or null over empty sheet or mat. */
   targetAt(clientX: number, clientY: number): string | null;
+  /**
+   * True when a finger at this page point lands on the chosen design (or one of a chosen
+   * group) or on its handles, so Fabric should move, scale or rotate it. Sizes the handles'
+   * touch areas for the design's size on screen first.
+   */
+  touchLandsOnSelection(clientX: number, clientY: number): boolean;
+  /** Calls off the running Fabric gesture without saving its result (a drag became a pinch). */
+  cancelGesture(): void;
+  /** Before a new touch: ends, unsaved, anything a lost touch left behind, and redraws. */
+  settleGesture(): void;
   /** Scroll the sheet by screen pixels. */
   panBy(dx: number, dy: number): void;
   /** While panning, Fabric finds no targets and draws no selection box. */
@@ -148,9 +164,6 @@ export function mountCanvas(
     selectionColor: 'rgba(0, 134, 179, 0.12)',
     selectionBorderColor: ACCENT,
     selectionLineWidth: 1,
-    // On a phone a finger swipe must scroll the sheet (else only its first screenful can be
-    // seen). Swipes on the mat or on an unselected design scroll; a selected design still drags.
-    allowTouchScrolling: true,
     // The browser's own menu stays on empty canvas; over a design the action bar opens its menu.
     stopContextMenu: false,
   });
@@ -167,6 +180,7 @@ export function mountCanvas(
   const gestureListeners: Array<(active: boolean) => void> = [];
   let gestureActive = false;
   const altDrag = mountAltDrag(canvas, store);
+  const guard = mountGestureGuard(canvas, () => sync());
 
   const scale = (): number => zoom * PX_PER_MM;
 
@@ -254,6 +268,8 @@ export function mountCanvas(
       borderColor: ACCENT,
       transparentCorners: false,
       cornerSize: 11,
+      // A finger needs a bigger target than the drawn handle (resized to the design on touch).
+      touchCornerSize: 44,
       padding: 0,
     }) as DesignObject;
     // Corners scale uniformly; the side handles would stretch the design, so they are hidden.
@@ -443,7 +459,7 @@ export function mountCanvas(
     // Fabric fires this while it is still finishing the transform; committing right here makes
     // sync() drop and rebuild the selection mid-transform, which re-fires events in a loop.
     // Read the result now, commit just after Fabric is done. Events we caused are ignored.
-    if (syncing) return;
+    if (syncing || guard.suppressing()) return;
     const patches = gesturePatches();
     const copy = altDrag.leaving();
     if (patches?.size)
@@ -673,6 +689,10 @@ export function mountCanvas(
     transform: () => canvas.viewportTransform,
     screenBox: (ids) => screenBoxOf(canvas, canvasEl, store, ids),
     targetAt: (clientX, clientY) => designAt(canvas, canvasEl, store, { x: clientX, y: clientY }),
+    touchLandsOnSelection: (clientX, clientY) =>
+      touchLandsOnSelection(canvas, canvasEl, store, { x: clientX, y: clientY }),
+    cancelGesture: () => guard.cancel(),
+    settleGesture: () => guard.settle(),
     panBy(dx, dy) {
       scroller.scrollLeft += dx;
       scroller.scrollTop += dy;

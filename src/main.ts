@@ -39,7 +39,8 @@ import { mountActionBar } from '@/editor/action-bar';
 import { mountSpacePan } from '@/editor/space-pan';
 import { mountShortcutsKey } from '@/editor/shortcuts';
 import { mountTopbar } from '@/editor/topbar';
-import { mountPhoneShell } from '@/editor/phone-shell';
+import { mountPhoneShell, PHONE_QUERY } from '@/editor/phone-shell';
+import { mountTouch } from '@/editor/touch';
 
 const emptySheet = (settings = DEFAULT_SETTINGS): Sheet => ({
   designs: [],
@@ -112,8 +113,16 @@ const selectionDeps = {
   surface: byId('viewport'),
   arrange: (ids: readonly string[]) => void arrange.run(ids),
 };
-mountActionBar(selectionDeps);
-mountPhoneShell({ ...selectionDeps, app: byId('app'), stage: byId('stage') });
+const actionBar = mountActionBar(selectionDeps);
+const phoneShell = mountPhoneShell({ ...selectionDeps, app: byId('app'), stage: byId('stage') });
+const phoneLayout = matchMedia(PHONE_QUERY);
+mountTouch({
+  view: canvasView,
+  store,
+  surface: byId('viewport'),
+  scroller: byId('scroller'),
+  openMore: (at) => (phoneLayout.matches ? phoneShell : actionBar).openMoreAt(at),
+});
 mountSpacePan(canvasView, byId('viewport'));
 mountShortcutsKey();
 const topbar = mountTopbar(store);

@@ -91,3 +91,57 @@ export function designAt(
     );
   return store.get().sheet.designs.findLast(inside)?.id ?? null;
 }
+
+/** Finger targets of a chosen design's handles: on empty canvas, and over another design. */
+const TOUCH_HANDLE_PX = 44;
+const TOUCH_HANDLE_OVER_OTHER_PX = 20;
+
+/** Where a finger landed, as far as the chosen design's handles are concerned. */
+type Landing = 'chosen' | 'other' | 'empty';
+
+/**
+ * Sets the finger targets of the chosen design's handles for a touch:
+ *  - on empty canvas, 44 px;
+ *  - on another design, 20 px, so a big handle target does not take a touch meant for a
+ *    neighbour (on a dense sheet at fit zoom, neighbours are a few pixels apart);
+ *  - on the chosen design, at most a third of its shorter side on screen: on a design of 120 px
+ *    a corner can still be grabbed near the corner, while a small one (a few pixels at fit zoom)
+ *    moves under a finger instead of scaling.
+ */
+// This must run before Fabric sees the touch (its touchstart), because Fabric hit-tests the
+// handles with these sizes when the touch starts; touch.ts calls it while deciding who owns the
+// touch, on the first event of the touch.
+function sizeTouchHandles(active: FabricObject, scale: number, landing: Landing): void {
+  const side = Math.min(active.getScaledWidth(), active.getScaledHeight()) * scale;
+  const size = {
+    chosen: Math.min(TOUCH_HANDLE_PX, side / 3),
+    other: TOUCH_HANDLE_OVER_OTHER_PX,
+    empty: TOUCH_HANDLE_PX,
+  }[landing];
+  if (active.touchCornerSize === size) return;
+  active.touchCornerSize = size;
+  active.setCoords();
+}
+
+/**
+ * True when a finger at this page point lands on the chosen design or its handles, so the touch
+ * belongs to Fabric (move, scale, rotate). A locked design cannot move, so a finger on it pans
+ * instead. With several chosen, the group's box spans the gaps between them: only a finger on
+ * one of the chosen designs counts.
+ */
+export function touchLandsOnSelection(
+  canvas: Canvas,
+  canvasEl: HTMLCanvasElement,
+  store: Store,
+  client: { x: number; y: number },
+): boolean {
+  const active = canvas.getActiveObject();
+  if (!active) return false;
+  const id = designAt(canvas, canvasEl, store, client);
+  const onChosen = id !== null && store.get().selection.includes(id);
+  const landing: Landing = onChosen ? 'chosen' : id === null ? 'empty' : 'other';
+  sizeTouchHandles(active, canvas.viewportTransform[0], landing);
+  const rect = canvasEl.getBoundingClientRect();
+  if (active.findControl(new Point(client.x - rect.left, client.y - rect.top), true)) return true;
+  return onChosen && !active.lockMovementX;
+}

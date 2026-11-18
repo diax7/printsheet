@@ -730,6 +730,9 @@ input[aria-invalid='true'] {
 .stage {
   grid-area: stage;
   position: relative;
+  /* A held finger selects no text and shows no callout; it may open the app's own menu. */
+  -webkit-touch-callout: none;
+  user-select: none;
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   grid-template-rows: 24px minmax(0, 1fr);
@@ -1460,15 +1463,6 @@ progress {
   }
   .topbar {
     touch-action: manipulation;
-  }
-  /*
-   * One finger still scrolls the sheet, but a pinch no longer zooms the whole page, until the
-   * phase 3 gestures take the canvas over. Fabric writes touch-action on the canvases itself,
-   * so this has to win over its inline style.
-   */
-  .upper-canvas,
-  .lower-canvas {
-    touch-action: pan-x pan-y !important;
   }
   /* The busy message, moved over the sheet, floats under the top bar. */
   .busy {

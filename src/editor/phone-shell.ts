@@ -10,7 +10,8 @@
  */
 import { createBottomSheet, type BottomSheet } from '@/editor/bottom-sheet';
 import { closeMenu } from '@/editor/menu';
-import { phoneBar } from '@/editor/phone-bar';
+import { phoneBar, selectionMenu } from '@/editor/phone-bar';
+import { openMenu } from '@/editor/menu';
 import { revealOffset, scrollWithoutRoom, sheetLift } from '@/editor/sheet-maths';
 import type { ActionBarDeps } from '@/editor/action-bar';
 import { byId, el, isTyping } from '@/editor/dom';
@@ -195,8 +196,13 @@ function revealSelection(deps: PhoneShellDeps, sheet: HTMLElement): void {
   });
 }
 
-/** Mounts the phone layout; it follows the window's width from then on. */
-export function mountPhoneShell(deps: PhoneShellDeps): void {
+/**
+ * Mounts the phone layout; it follows the window's width from then on. Returns a way to open the
+ * selection's More menu at a point (a long press).
+ */
+export function mountPhoneShell(deps: PhoneShellDeps): {
+  openMoreAt(at: { x: number; y: number }): void;
+} {
   const { app, store, scroller } = deps;
   // With no sheet open, the extra scroll room for revealing a design goes away.
   const sheets = createSheets(() => {
@@ -261,4 +267,17 @@ export function mountPhoneShell(deps: PhoneShellDeps): void {
   });
   query.addEventListener('change', sync);
   sync();
+  return {
+    openMoreAt(at) {
+      const menu = selectionMenu(deps, { toggleSheet });
+      if (!menu) return;
+      openMenu({
+        ...menu,
+        at,
+        returnFocus: barElement.querySelector<HTMLElement>('[data-action="more"]'),
+        fallbackFocus: scroller,
+        focusFirst: false,
+      });
+    },
+  };
 }

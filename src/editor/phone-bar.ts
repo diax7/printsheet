@@ -17,7 +17,7 @@ import {
 } from '@/editor/action-bar';
 import { flip } from '@/editor/actions';
 import { byId, el, icon } from '@/editor/dom';
-import { closeMenu, isMenuOpenFrom, openMenu, SEPARATOR } from '@/editor/menu';
+import { closeMenu, isMenuOpenFrom, openMenu, SEPARATOR, type MenuEntry } from '@/editor/menu';
 import type { Design } from '@/model/types';
 
 /** What the bar's buttons open; the phone shell owns the sheets. */
@@ -199,6 +199,18 @@ function buttonsNow(deps: ActionBarDeps, handlers: PhoneBarHandlers): PhoneButto
   const first = chosen[0];
   if (chosen.length > 1) return severalButtons(deps, handlers, chosen);
   return first ? oneButtons(deps, handlers, first) : noneButtons(handlers);
+}
+
+/**
+ * The menu the bar's More button opens for the current selection (a long press opens it too),
+ * or null with nothing selected (then More is a sheet).
+ */
+export function selectionMenu(
+  deps: ActionBarDeps,
+  handlers: PhoneBarHandlers,
+): { label: string; entries: MenuEntry[] } | null {
+  const more = buttonsNow(deps, handlers).find((spec) => spec.action === 'more');
+  return more?.menu?.() ?? null;
 }
 
 /** The bottom bar in `container`; `render` rebuilds it when the selection changes. */

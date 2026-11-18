@@ -1,10 +1,10 @@
 /**
- * On a phone the sheet fills the screen between the top and bottom bars. A finger swipe must
- * scroll it, or only the first screenful of a long sheet can ever be seen (reported on an iPhone,
- * 2026-11-18); the page itself must never jump.
+ * On a phone the sheet fills the screen between the top and bottom bars, and the page itself must
+ * never jump. Finger gestures on the sheet (panning to the end of a long sheet included) are in
+ * touch.spec.ts.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { addImages, arrange, collectErrors, designs, openApp, state, typeField } from './helpers';
+import { addImages, collectErrors, designs, openApp, state } from './helpers';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -19,49 +19,6 @@ test.beforeEach(async ({ page, browserName }) => {
 });
 test.afterEach(() => {
   expect(errors).toEqual([]);
-});
-
-/** A one-finger swipe upwards from (x, y), the way you scroll down a page. */
-async function swipeUp(page: Page, x: number, y: number, distance: number): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  const point = (dy: number): Array<{ x: number; y: number }> => [{ x, y: y - dy }];
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(0) });
-  for (let step = 1; step <= 10; step++) {
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: point((distance * step) / 10),
-    });
-  }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-}
-
-test('a finger swipe on the canvas scrolls a long sheet on a phone', async ({ page }) => {
-  // A sheet about two metres long: big designs, two to a row.
-  await addImages(page, ['f-shape.png']);
-  await barButton(page, 'Size').click();
-  await typeField(page, '#insp-width', '25');
-  await page.keyboard.press('Escape');
-  for (let i = 0; i < 3; i++) {
-    await page.keyboard.press('Control+a');
-    await page.keyboard.press('Control+d');
-  }
-  await expect.poll(async () => (await designs(page)).length).toBe(8);
-  await page.keyboard.press('Escape');
-  await arrange(page, () => barButton(page, 'Arrange').click());
-  await expect
-    .poll(async () => Number(await page.locator('#film-meters').textContent()))
-    .toBeGreaterThan(1.5);
-  await page.keyboard.press('Escape');
-
-  const scroller = page.locator('#scroller');
-  await scroller.scrollIntoViewIfNeeded();
-  const box = await scroller.boundingBox();
-  if (!box) throw new Error('The canvas area is not on screen');
-  const before = await scroller.evaluate((el) => el.scrollTop);
-  // Start on the mat beside the sheet, where no design is.
-  await swipeUp(page, box.x + 20, box.y + box.height * 0.8, box.height * 0.5);
-  // The sheet's own scroll area moves, not just the page around it.
-  await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(before + 50);
 });
 
 test('the zoom buttons can be reached on a phone, in More', async ({ page }) => {
@@ -139,13 +96,14 @@ test('Escape in the right-click menu gives focus back to the sheet, as the bar i
   await expect(page.locator('#scroller')).toBeFocused();
 });
 
-test('the canvas lets a finger scroll but not pinch-zoom the page', async ({ page }) => {
-  // Until the gestures of phase 3, one finger scrolls the sheet; the page itself must not zoom.
+test('the canvas keeps every finger to itself, so a pinch zooms the sheet, not the page', async ({
+  page,
+}) => {
   const actions = await page.evaluate(() =>
     ['.upper-canvas', '.lower-canvas'].map((selector) => {
       const canvas = document.querySelector(selector);
       return canvas ? getComputedStyle(canvas).touchAction : 'missing';
     }),
   );
-  expect(actions).toEqual(['pan-x pan-y', 'pan-x pan-y']);
+  expect(actions).toEqual(['none', 'none']);
 });

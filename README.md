@@ -61,6 +61,18 @@ them).
 5. Fix anything marked in red or amber.
 6. Click **Export**, choose the settings below, and send the file to your printer.
 
+### On a phone
+
+- The bar at the bottom changes with what you choose: with nothing chosen it adds images, opens
+  the design list and the sheet settings, and arranges; with a design chosen it duplicates,
+  deletes, locks, rotates and opens **Size** for exact sizes. **More** holds the rest.
+- **Tap** a design to choose it, tap empty space to let go. In the **Designs** list, tick several.
+- **Drag one finger** to move around the sheet, also over designs that are not chosen. To move
+  a design, tap it first, then drag it; drag a corner to resize it or the round handle above it
+  to turn it.
+- **Pinch** with two fingers to zoom in and out.
+- **Press and hold** a design for its menu (flip, layer order, copies).
+
 ## Export settings
 
 | Setting | Options | Advice |

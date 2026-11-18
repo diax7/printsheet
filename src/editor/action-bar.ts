@@ -392,8 +392,13 @@ function passWheelThrough(bar: HTMLElement, scroller: HTMLElement): void {
   );
 }
 
-/** Mounts the bar in `deps.overlay`; it follows the store and the view from then on. */
-export function mountActionBar(deps: ActionBarDeps): void {
+/**
+ * Mounts the bar in `deps.overlay`; it follows the store and the view from then on. Returns a way
+ * to open the selection's More menu at a point (a long press on a touch screen).
+ */
+export function mountActionBar(deps: ActionBarDeps): {
+  openMoreAt(at: { x: number; y: number }): void;
+} {
   const { store, view, overlay, scroller } = deps;
   const bar = el('div', { class: 'action-bar', role: 'toolbar', id: 'action-bar', hidden: true });
   overlay.append(bar);
@@ -433,6 +438,7 @@ export function mountActionBar(deps: ActionBarDeps): void {
   mountRightClick(deps, bar);
   mountAltF10(bar);
   contents.render();
+  return { openMoreAt: (at) => openMoreMenu(deps, bar, at) };
 }
 
 /** Arrow keys, Home and End move along the bar; Escape goes back to the sheet. */
@@ -455,6 +461,22 @@ function onBarKey(event: KeyboardEvent, list: HTMLButtonElement[], scroller: HTM
 }
 
 /** A right-click on a design selects it (unless it is already selected) and opens More there. */
+/** Opens the selection's More menu at a page point (a right-click, or a long press). */
+function openMoreMenu(deps: ActionBarDeps, bar: HTMLElement, at: { x: number; y: number }): void {
+  const more = bar.querySelector<HTMLButtonElement>('[data-action="more"]');
+  more?.setAttribute('aria-expanded', 'true');
+  openMenu({
+    label: 'More actions',
+    entries: moreEntries(deps),
+    at,
+    // On a phone, or with the bar out of view, More is not on screen: focus goes to the sheet.
+    returnFocus: more,
+    fallbackFocus: deps.scroller,
+    focusFirst: false,
+    onClose: () => more?.setAttribute('aria-expanded', 'false'),
+  });
+}
+
 function mountRightClick(deps: ActionBarDeps, bar: HTMLElement): void {
   deps.surface.addEventListener('contextmenu', (event) => {
     const id = deps.view.targetAt(event.clientX, event.clientY);
@@ -462,18 +484,7 @@ function mountRightClick(deps: ActionBarDeps, bar: HTMLElement): void {
     if (!id) return;
     event.preventDefault();
     if (!deps.store.get().selection.includes(id)) deps.store.setSelection([id]);
-    const more = bar.querySelector<HTMLButtonElement>('[data-action="more"]');
-    more?.setAttribute('aria-expanded', 'true');
-    openMenu({
-      label: 'More actions',
-      entries: moreEntries(deps),
-      at: { x: event.clientX, y: event.clientY },
-      // On a phone, or with the bar out of view, More is not on screen: focus goes to the sheet.
-      returnFocus: more,
-      fallbackFocus: deps.scroller,
-      focusFirst: false,
-      onClose: () => more?.setAttribute('aria-expanded', 'false'),
-    });
+    openMoreMenu(deps, bar, { x: event.clientX, y: event.clientY });
   });
 }
 
