@@ -564,6 +564,8 @@ input[aria-invalid='true'] {
 .design-meta {
   color: var(--muted);
   font-size: 12px;
+  /* The badge and the size stay on one line beside the flags. */
+  white-space: nowrap;
 }
 
 .design-flags {
@@ -593,6 +595,21 @@ input[aria-invalid='true'] {
 .dpi-low {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* The kind of file a design came from: a quiet label, not a status colour. */
+.file-type {
+  display: inline-block;
+  margin-inline-end: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 15px;
+  color: var(--muted);
+  vertical-align: 1px;
 }
 
 .flag {

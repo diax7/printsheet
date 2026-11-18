@@ -19,6 +19,7 @@ import {
 import { validateSheetLenient } from '@/model/validate';
 import { formatVersion, PROJECT_VERSION } from '@/store/project-file';
 import type { ImageAsset, Sheet } from '@/model/types';
+import { isFileFormat, type FileFormat } from '@/image/format';
 
 const DB = 'printsheet';
 const SHEET_KEY = 'sheet';
@@ -31,6 +32,7 @@ interface StoredAsset {
   widthPx: number;
   heightPx: number;
   hasTransparency: boolean;
+  format?: FileFormat;
 }
 
 export interface Autosave {
@@ -90,6 +92,7 @@ export function createAutosave(
             widthPx: a.widthPx,
             heightPx: a.heightPx,
             hasTransparency: a.hasTransparency,
+            ...(a.format ? { format: a.format } : {}),
           },
         ]);
     }
@@ -146,7 +149,10 @@ export function createAutosave(
         const k = String(key);
         if (!k.startsWith(ASSET_PREFIX)) continue;
         const a = (await get(k, store())) as StoredAsset | undefined;
-        if (a && a.blob instanceof Blob) assets.set(a.id, { ...a });
+        if (a && a.blob instanceof Blob) {
+          const { format, ...rest } = a;
+          assets.set(a.id, { ...rest, ...(isFileFormat(format) ? { format } : {}) });
+        }
       }
       // One unusable design (malformed, or its image is gone) never loses the rest of the sheet.
       const { sheet, dropped } = validateSheetLenient(stored.sheet, new Set(assets.keys()));

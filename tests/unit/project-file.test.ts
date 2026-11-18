@@ -118,6 +118,23 @@ describe('project file', () => {
     }
   });
 
+  it('keeps the file type of each image, and none for an image added before file types', async () => {
+    const typed = new Map(assets).set('a1', { ...asset('a1', [1, 2, 3]), format: 'jpg' as const });
+    const opened = await parseProject(await serializeProject(sheet, typed));
+    expect(opened.assets.get('a1')?.format).toBe('jpg');
+    expect(opened.assets.get('a2')).not.toHaveProperty('format');
+  });
+
+  it('drops a file type it does not know, and still opens the project', async () => {
+    const typed = new Map(assets).set('a1', { ...asset('a1', [1, 2, 3]), format: 'jpg' as const });
+    const file = await withHeader(await serializeProject(sheet, typed), (h) => {
+      const list = h['assets'] as Array<Record<string, unknown>>;
+      if (list[0]) list[0]['format'] = '<script>';
+    });
+    const opened = await parseProject(file);
+    expect(opened.assets.get('a1')).not.toHaveProperty('format');
+  });
+
   it('saves only images the sheet uses', async () => {
     const extra = new Map(assets).set('unused', asset('unused', [42]));
     const opened = await parseProject(await serializeProject(sheet, extra));

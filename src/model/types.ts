@@ -1,6 +1,7 @@
 /**
  * The sheet model. Every length is in millimetres; the screen is only a view of this.
  */
+import type { FileFormat } from '@/image/format';
 
 /**
  * An uploaded image after trimming. `blob` is the full-resolution trimmed PNG (8-bit sRGB, every
@@ -15,6 +16,8 @@ export interface ImageAsset {
   heightPx: number;
   /** False when the image has no transparent pixel at all (prints as a solid block). */
   hasTransparency: boolean;
+  /** The kind of file it came from, for its badge; absent on images added before badges. */
+  format?: FileFormat;
 }
 
 /**

@@ -7,6 +7,7 @@ import ImportWorker from '@/image/import-worker?worker&inline';
 import type { ImportRequest, ImportResponse } from '@/image/import-worker';
 import { withSum, type ShapeMask } from '@/model/mask';
 import type { ImageAsset } from '@/model/types';
+import { detectFormat, FORMAT_HEAD_BYTES, type FileFormat } from '@/image/format';
 
 let worker: Worker | null = null;
 let nextId = 1;
@@ -65,6 +66,13 @@ export function nameFromFile(fileName: string): string {
   return (withoutExtension.trim() || 'Image').slice(0, 120);
 }
 
+/** The badge field for a decoded image: only formats the browser decodes as pixels get one. */
+function badge(format: FileFormat | 'unknown'): Pick<ImageAsset, 'format'> {
+  return format === 'png' || format === 'jpg' || format === 'webp' || format === 'gif'
+    ? { format }
+    : {};
+}
+
 export interface ImportResult {
   assets: ImageAsset[];
   /** Ink masks of the imported images, by asset id. */
@@ -85,6 +93,15 @@ export async function importFiles(
   const errors: string[] = [];
   let done = 0;
   for (const { blob, name } of files) {
+    const format = detectFormat(
+      new Uint8Array(await blob.slice(0, FORMAT_HEAD_BYTES).arrayBuffer()),
+      name,
+    );
+    if (typeof format === 'object') {
+      errors.push(`"${name}": ${format.refuse}`);
+      onProgress?.(++done, files.length);
+      continue;
+    }
     const response = await process(blob, name);
     if (response.ok && !('maskOnly' in response)) {
       masks.set(`img-${response.hash}`, withSum(response.mask));
@@ -95,6 +112,7 @@ export async function importFiles(
         widthPx: response.widthPx,
         heightPx: response.heightPx,
         hasTransparency: response.hasTransparency,
+        ...badge(format),
       });
     } else if (!response.ok) {
       errors.push(response.message);

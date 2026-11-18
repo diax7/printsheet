@@ -5,6 +5,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { encode } from 'fast-png';
+import jpeg from 'jpeg-js';
 
 const OUT = join(process.cwd(), 'tests', 'fixtures', 'out');
 
@@ -85,6 +86,15 @@ function main(): void {
     png(900, 900, (x, y) => (x < 180 || y >= 720 ? [20, 110, 200, 255] : [0, 0, 0, 0])),
   );
   writeFileSync(join(OUT, 'not-an-image.png'), new TextEncoder().encode('this is not a PNG'));
+  // A photo with no transparency, as a JPEG, for its file-type badge.
+  const photo = { width: 200, height: 120, data: new Uint8Array(200 * 120 * 4) };
+  for (let i = 0; i < photo.data.length; i += 4) photo.data.set([200, (i / 4) % 200, 60, 255], i);
+  writeFileSync(join(OUT, 'photo.jpg'), jpeg.encode(photo, 90).data);
+  // An EPS header and nothing more: enough to be recognised and refused.
+  writeFileSync(
+    join(OUT, 'logo.eps'),
+    new TextEncoder().encode('%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n'),
+  );
   console.log(`Fixtures written to ${OUT}`);
 }
 

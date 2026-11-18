@@ -110,13 +110,25 @@ function renderRow(
       'div',
       {},
       el('div', { class: 'design-name', text: d.name }),
-      el('div', {
-        class: 'design-meta',
-        text: `${formatCm(d.widthMm)} × ${formatCm(d.heightMm)} cm${d.locked ? ', locked' : ''}`,
-      }),
+      el(
+        'div',
+        { class: 'design-meta' },
+        fileBadge(asset),
+        `${formatCm(d.widthMm)} × ${formatCm(d.heightMm)} cm${d.locked ? ', locked' : ''}`,
+      ),
     ),
     flags,
   );
+}
+
+/**
+ * A small label with the kind of file a design came from (PNG, SVG...). Images added before file
+ * types were kept have none.
+ */
+export function fileBadge(asset: ImageAsset | undefined): HTMLElement | null {
+  return asset?.format
+    ? el('span', { class: 'file-type', text: asset.format.toUpperCase() })
+    : null;
 }
 
 export function mountPanel(

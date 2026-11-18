@@ -4,7 +4,7 @@
  *   bytes 0..7    "PSHEET01"
  *   bytes 8..11   header length (u32, big-endian)
  *   header        JSON: { version, sheet, assets: [{ id, name, widthPx, heightPx,
- *                 hasTransparency, offset, size }] }
+ *                 hasTransparency, format?, offset, size }] }
  *   rest          the images' PNG bytes back to back; `offset` counts from the end of the header
  *
  * Images stay binary (no base64), so large projects do not hit JavaScript's string size limit,
@@ -12,6 +12,7 @@
  */
 import { validateSheetLenient } from '@/model/validate';
 import type { ImageAsset, Sheet } from '@/model/types';
+import { isFileFormat, type FileFormat } from '@/image/format';
 
 export const PROJECT_MAGIC = 'PSHEET01';
 /**
@@ -35,6 +36,7 @@ interface AssetEntry {
   widthPx: number;
   heightPx: number;
   hasTransparency: boolean;
+  format?: FileFormat;
   offset: number;
   size: number;
 }
@@ -56,6 +58,7 @@ export async function serializeProject(
       widthPx: asset.widthPx,
       heightPx: asset.heightPx,
       hasTransparency: asset.hasTransparency,
+      ...(asset.format ? { format: asset.format } : {}),
       offset,
       size: asset.blob.size,
     });
@@ -107,7 +110,7 @@ function checkNoOverlap(entries: readonly AssetEntry[]): void {
 
 function checkEntry(v: unknown, dataSize: number): AssetEntry {
   if (!isRecord(v)) throw damaged('image list');
-  const { id, name, widthPx, heightPx, hasTransparency, offset, size } = v;
+  const { id, name, widthPx, heightPx, hasTransparency, format, offset, size } = v;
   if (
     typeof id !== 'string' ||
     id.length === 0 ||
@@ -126,7 +129,17 @@ function checkEntry(v: unknown, dataSize: number): AssetEntry {
   }
   if (!int(offset, dataSize) || !int(size, dataSize) || offset + size > dataSize)
     throw damaged('image position');
-  return { id, name, widthPx, heightPx, hasTransparency, offset, size };
+  // The file type only picks a badge: one this build does not know is dropped, not refused.
+  return {
+    id,
+    name,
+    widthPx,
+    heightPx,
+    hasTransparency,
+    ...(isFileFormat(format) ? { format } : {}),
+    offset,
+    size,
+  };
 }
 
 /**
@@ -184,6 +197,7 @@ export async function parseProject(
       widthPx: e.widthPx,
       heightPx: e.heightPx,
       hasTransparency: e.hasTransparency,
+      ...(e.format ? { format: e.format } : {}),
       blob: new Blob([bytes], { type: 'image/png' }),
     });
   }
