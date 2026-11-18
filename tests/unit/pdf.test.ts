@@ -430,14 +430,37 @@ describe('buildPdf', () => {
     expect(Array.from(cmyk.subarray(0, 4))).toEqual([0, 0, 0, 0]);
   });
 
-  it('keeps CMYK lossless even when compact is chosen', async () => {
+  it('stores CMYK as an Adobe CMYK JPEG in compact mode, with the soft mask exact', async () => {
+    const profile = new Uint8Array(readFileSync('src/assets/cmyk-profile.icc'));
+    const toCmyk = await createCmykConverter(profile);
+    const s = sheet([design('d1', { widthMm: 50, heightMm: 50 })]);
+    const bytes = await buildPdf(
+      [s],
+      new Map([['a1', disc(64)]]),
+      { ...OPTS, color: 'cmyk', pdfCompression: 'compact' },
+      { pixels: nodePixels, toCmyk },
+    );
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    const [img] = [...images(doc).values()];
+    expect(img?.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('DCTDecode'));
+    expect(img?.dict.get(PDFName.of('ColorSpace'))).toEqual(PDFName.of('DeviceCMYK'));
+    // Adobe CMYK JPEGs store inverted samples; the Decode array turns them back.
+    expect(img?.dict.get(PDFName.of('Decode'))?.toString()).toBe('[ 1 0 1 0 1 0 1 0 ]');
+    const contents = img?.contents ?? new Uint8Array();
+    expect([contents[0], contents[1]]).toEqual([0xff, 0xd8]);
+    const mask = lookup(doc, img?.dict.get(PDFName.of('SMask'))) as PDFRawStream;
+    expect(mask.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('FlateDecode'));
+    expect(samples(mask)[32 * 64 + 32]).toBe(255);
+  });
+
+  it('keeps CMYK lossless when lossless is chosen', async () => {
     const profile = new Uint8Array(readFileSync('src/assets/cmyk-profile.icc'));
     const toCmyk = await createCmykConverter(profile);
     const map = new Map([['a1', asset('a1', 4, 2)]]);
     const bytes = await buildPdf(
       [sheet([design('d1')])],
       map,
-      { ...OPTS, color: 'cmyk', pdfCompression: 'compact' },
+      { ...OPTS, color: 'cmyk', pdfCompression: 'lossless' },
       { pixels: nodePixels, toCmyk },
     );
     const [img] = [...images(await PDFDocument.load(bytes, { updateMetadata: false })).values()];

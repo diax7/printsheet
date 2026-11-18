@@ -66,7 +66,7 @@ them).
 | --- | --- | --- |
 | Format | PDF, PNG | Ask your print shop. Many DTF shops ask for PNG. |
 | Colour (PDF) | RGB, CMYK | Use **RGB** unless told otherwise. The printer's own software (its RIP) converts colours with that printer's profile. CMYK here uses a standard press profile (FOGRA39), not your printer's. |
-| File size (PDF, RGB) | Compact, Lossless | **Compact** (the default) stores colours as high-quality JPEG (quality 92, full colour resolution) and keeps transparency and every edge exact: about a quarter of the lossless size, easy to send by WhatsApp or email. **Lossless** keeps every pixel. CMYK is always lossless. |
+| File size (PDF) | Compact, Lossless | **Compact** (the default) stores colours as high-quality JPEG (quality 92, full colour resolution) and keeps transparency and every edge exact: about a quarter of the lossless size, easy to send by WhatsApp or email. **Lossless** keeps every pixel. In CMYK, Compact writes a four-channel CMYK JPEG, the kind Photoshop and Acrobat use. |
 | Resolution (PNG) | 150, 300, 360, 600 DPI | 300 is the usual print quality. The DPI is written into the file, so it opens at the right size. |
 | Image quality (PDF) | Original, up to 600 DPI, up to 300 DPI | The PDF keeps every image at its full resolution by default. A limit only shrinks images placed above it, so it helps only when your images are sharper than the print needs. |
 | Mirror | Regular, Mirrored | DTF is printed mirrored, but the printer's software usually does it. Only choose Mirrored if your shop asks. A small preview shows the file the way it will come out. |

@@ -379,14 +379,46 @@ test('the default PDF is compact: JPEG colour with the exact transparency mask',
   expect(mask.dict.get(PDFName.of('Filter'))).toEqual(PDFName.of('FlateDecode'));
 });
 
-test('the file-size choice is hidden for CMYK, which is always lossless', async ({ page }) => {
+test('the file-size choice applies to CMYK too', async ({ page }) => {
   await addImages(page, ['f-shape.png']);
   await page.click('#export');
   const compact = page.locator('[data-group="compression"][data-value="compact"]');
   await expect(compact).toBeVisible();
   await page.locator('[data-group="color"][data-value="cmyk"]').click();
-  await expect(compact).toBeHidden();
-  await expect(page.locator('#export-dialog .notice').last()).toContainText('always lossless');
+  await expect(compact).toBeVisible();
+  await expect(page.locator('#export-dialog .notice').last()).not.toContainText('always lossless');
+});
+
+test('a compact CMYK PDF looks like the lossless one when drawn by pdf.js', async ({ page }) => {
+  test.slow();
+  await addImages(page, ['f-shape.png']);
+  await typeField(page, '#insp-width', '12');
+  const lossless = await renderWithPdfJs(
+    page,
+    await downloadBytes(
+      await exportFile(page, { format: 'pdf', color: 'cmyk', compression: 'lossless' }),
+    ),
+  );
+  const compact = await renderWithPdfJs(
+    page,
+    await downloadBytes(
+      await exportFile(page, { format: 'pdf', color: 'cmyk', compression: 'compact' }),
+    ),
+  );
+  // Same exact edges (the soft mask is lossless in both).
+  expect(Array.from(alphaOf(compact))).toEqual(Array.from(alphaOf(lossless)));
+  // Nearly the same colours: a wrong inversion or channel order would differ by over 100.
+  let diff = 0;
+  let count = 0;
+  for (let i = 0; i < lossless.width * lossless.height; i++) {
+    if (lossless.data[i * 4 + 3] !== 255) continue;
+    for (let c = 0; c < 3; c++) {
+      diff += Math.abs((lossless.data[i * 4 + c] ?? 0) - (compact.data[i * 4 + c] ?? 0));
+      count++;
+    }
+  }
+  expect(count).toBeGreaterThan(1000);
+  expect(diff / count).toBeLessThan(6);
 });
 
 test('CMYK PDF stores CMYK pixels with the transparency kept', async ({ page }) => {

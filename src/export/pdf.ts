@@ -3,7 +3,7 @@
  * original resolution, or reduced to the chosen limit) and every design that uses it is drawn
  * with its own transform, so the sheet is never flattened into one picture. Transparency is a
  * lossless soft mask, so DTF software sees exactly where ink goes. Colour is stored either
- * lossless or, in compact mode, as a high-quality JPEG (RGB only).
+ * lossless or, in compact mode, as a high-quality JPEG (RGB, or Adobe-style CMYK).
  */
 import {
   PDFDocument,
@@ -18,6 +18,7 @@ import {
 import { bleedTransparent } from '@/export/bleed';
 import type { CmykConverter } from '@/export/cmyk';
 import { encodeJpeg } from '@/export/jpeg';
+import { encodeJpegCmyk } from '@/export/jpeg-cmyk';
 import { filterPaeth } from '@/export/png-filter';
 import { sheetLengthMm, contentLengthMm } from '@/model/geometry';
 import { mmToPt, mmToPx } from '@/model/units';
@@ -126,9 +127,21 @@ async function embedImage(
     });
   }
   if (opts.color === 'cmyk') {
-    // A JPEG cannot be made in CMYK here, so CMYK stays lossless whatever the setting.
     if (!deps.toCmyk) throw new Error('CMYK export needs the colour converter');
-    return losslessStream(doc, deps.toCmyk(rgba), 4, { ...dict, ColorSpace: 'DeviceCMYK' });
+    if (opts.pdfCompression !== 'compact') {
+      return losslessStream(doc, deps.toCmyk(rgba), 4, { ...dict, ColorSpace: 'DeviceCMYK' });
+    }
+    // Same edge care as RGB: transparent pixels take the design's colour before JPEG coding.
+    if (asset.hasTransparency) bleedTransparent(rgba, width, height);
+    const jpeg = encodeJpegCmyk(deps.toCmyk(rgba), width, height);
+    // Adobe CMYK JPEGs store inverted samples; this Decode array turns them back.
+    const cmykDict = {
+      ...dict,
+      ColorSpace: 'DeviceCMYK',
+      Filter: 'DCTDecode',
+      Decode: [1, 0, 1, 0, 1, 0, 1, 0],
+    };
+    return doc.context.register(doc.context.stream(jpeg, cmykDict as ImageDict));
   }
   if (opts.pdfCompression === 'compact') {
     if (asset.hasTransparency) bleedTransparent(rgba, width, height);

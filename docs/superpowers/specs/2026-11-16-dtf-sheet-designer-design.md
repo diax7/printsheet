@@ -131,7 +131,7 @@ no pricing.
     - PDF file size (RGB): **Compact** (default; amended v3, owner's choice after a 69.6 MB
       export) stores colour as JPEG at quality 92 with full colour resolution (4:4:4) and a
       lossless soft mask, with the colour under transparency spread from the design so edges do
-      not darken; **Lossless** keeps every pixel. CMYK is always lossless. Lossless images and
+      not darken; **Lossless** keeps every pixel. CMYK Compact (v6, 2026-11-18) writes an Adobe-style four-channel CMYK JPEG (APP14 transform 0, inverted samples, Decode [1 0 1 0 1 0 1 0]). Lossless images and
       PNG exports use PNG row filters (Paeth).
     - PDF image quality: keep original resolution (default), or limit to 600 or 300 DPI to make
       large files smaller.

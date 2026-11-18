@@ -81,7 +81,7 @@ function notesText(sheet: Sheet, opts: ExportOptions): string {
   }
   if (opts.format === 'pdf' && opts.color === 'cmyk') {
     notes.push(
-      "CMYK uses a standard press profile (FOGRA39), not your printer's. RGB lets the print shop's software use its own printer profile, which usually gives better colour. CMYK files are always lossless, so they are larger.",
+      "CMYK uses a standard press profile (FOGRA39), not your printer's. RGB lets the print shop's software use its own printer profile, which usually gives better colour.",
     );
   }
   notes.push(
@@ -254,8 +254,7 @@ function buildOptions(
   const split = splitRow(opts, set);
   const byFormat = (): void => {
     color.setVisible(opts.format === 'pdf');
-    // CMYK is always lossless (a JPEG cannot be made in CMYK here), so the choice is hidden.
-    compression.setVisible(opts.format === 'pdf' && opts.color === 'rgb');
+    compression.setVisible(opts.format === 'pdf');
     quality.setVisible(opts.format === 'pdf');
     dpi.setVisible(opts.format === 'png');
     split.setVisible(context.parts > 1);
