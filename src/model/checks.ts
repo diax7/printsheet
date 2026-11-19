@@ -95,10 +95,13 @@ function computeIssues(
 
   for (const d of sheet.designs) {
     const asset = assets.get(d.assetId);
-    if (asset) {
+    // A vector is drawn afresh at print size, so it is sharp at any size.
+    if (asset && !asset.vector) {
       const level = dpiLevel(effectiveDpi(d, asset));
       if (level === 'low') add(d.id, { kind: 'low-dpi' });
       if (level === 'ok') add(d.id, { kind: 'ok-dpi' });
+    }
+    if (asset) {
       if (!asset.hasTransparency) add(d.id, { kind: 'no-transparency' });
     }
     const box = footprint(d);

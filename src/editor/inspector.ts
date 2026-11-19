@@ -22,7 +22,7 @@ import {
   toggleLock,
 } from '@/editor/actions';
 import { byId, el, icon, readNumber, setInputValue, toast } from '@/editor/dom';
-import { fileBadge, ISSUE_TEXT, isSerious } from '@/editor/panel';
+import { fileBadge, ISSUE_TEXT, isSerious, VECTOR_TEXT } from '@/editor/panel';
 import { openShortcuts } from '@/editor/shortcuts';
 import type { Store } from '@/store/store';
 
@@ -183,9 +183,11 @@ function summarySection(ctx: Ctx, d: Design, issues: Issue[]): HTMLElement {
     asset
       ? el(
           'p',
-          { class: `hint dpi-text-${dpiLevel(dpi)}` },
+          { class: `hint dpi-text-${asset.vector ? 'good' : dpiLevel(dpi)}` },
           fileBadge(asset),
-          `${Math.round(dpi)} DPI at this size, from a ${asset.widthPx} × ${asset.heightPx} px image`,
+          asset.vector
+            ? VECTOR_TEXT
+            : `${Math.round(dpi)} DPI at this size, from a ${asset.widthPx} × ${asset.heightPx} px image`,
         )
       : null,
     kinds.length

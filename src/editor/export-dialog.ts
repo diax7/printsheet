@@ -15,6 +15,8 @@ import type { ExportFile } from '@/export/worker';
 import { byId, el, toast } from '@/editor/dom';
 import { exportPreview, type ExportPreview } from '@/editor/export-preview';
 import type { Prefs } from '@/prefs';
+import { renderVectorsForExport } from '@/vector/export-render';
+import { vectorExportDpi } from '@/vector/render-size';
 import type { AppState, Store } from '@/store/store';
 
 /** File names keep letters, digits, spaces, dots, dashes and underscores. */
@@ -72,8 +74,11 @@ function blockerFor(sheet: Sheet, opts: ExportOptions): string | null {
 }
 
 /** Advice for the current choices. */
-function notesText(sheet: Sheet, opts: ExportOptions): string {
+function notesText(sheet: Sheet, opts: ExportOptions, hasVectors: boolean): string {
   const notes = ['The background is always transparent, so only your designs are printed.'];
+  if (hasVectors && opts.format === 'pdf' && opts.pdfMaxDpi === 'original') {
+    notes.push('Vector designs are drawn at 300 DPI.');
+  }
   const content = contentLengthMm(sheet.designs);
   const { layout, lengthMode, fixedLengthMm } = sheet.settings;
   if (layout === 'single' && lengthMode === 'fixed' && content > fixedLengthMm) {
@@ -323,7 +328,9 @@ export function openExportDialog(
     fileName: defaultFileName(sheet, new Date()),
   };
   const parts = splitForExport(sheet).parts.length;
-  let running: RunningExport | null = null;
+  const hasVectors = sheet.designs.some((d) => opened.assets.get(d.assetId)?.vector);
+  // The export in progress (drawing vectors, then the export worker), or null.
+  let running: { cancel(): void } | null = null;
 
   const summary = el('p', { class: 'summary-line' });
   const blockNotice = el('p', { class: 'notice danger', role: 'alert' });
@@ -351,7 +358,7 @@ export function openExportDialog(
     blockNotice.textContent = blocker ?? '';
     blockNotice.hidden = !blocker;
     exportButton.disabled = blocker !== null || running !== null;
-    infoNotice.textContent = notesText(sheet, opts);
+    infoNotice.textContent = notesText(sheet, opts, hasVectors);
     const kind = outputKind(opts, parts);
     extension.textContent =
       kind === 'zip'
@@ -409,18 +416,37 @@ export function openExportDialog(
     const used = [...current.assets.values()].filter((a) =>
       current.sheet.designs.some((d) => d.assetId === a.id),
     );
-    running = startExport(
-      { sheet: current.sheet, assets: used, options: { ...opts } },
-      (done, total, stage) => {
-        progress.max = total;
-        progress.value = done;
-        progressText.textContent = `${stage}: ${Math.round((done / total) * 100)}%`;
+    const showProgress = (done: number, total: number, stage: string): void => {
+      progress.max = total;
+      progress.value = done;
+      progressText.textContent = `${stage}: ${Math.round((done / total) * 100)}%`;
+    };
+    // One busy state from drawing the vectors to the finished file: Stop ends whichever runs.
+    const drawing = new AbortController();
+    let worker: RunningExport | null = null;
+    running = {
+      cancel: () => {
+        drawing.abort();
+        worker?.cancel();
       },
-    );
+    };
     refresh();
     cancelButton.textContent = 'Stop export';
     try {
-      deliver(await running.result, ui);
+      const drawn = await renderVectorsForExport(
+        current.sheet.designs,
+        used,
+        vectorExportDpi(opts),
+        drawing.signal,
+        (done, total) => showProgress(done, total, 'Drawing vectors'),
+      );
+      for (const note of drawn.notes) toast(note, 'error');
+      worker = startExport(
+        { sheet: current.sheet, assets: drawn.assets, options: { ...opts } },
+        showProgress,
+      );
+      if (drawing.signal.aborted) worker.cancel();
+      deliver(await worker.result, ui);
     } catch (error) {
       if (!(error instanceof ExportCancelled))
         toast(error instanceof Error ? error.message : String(error), 'error');

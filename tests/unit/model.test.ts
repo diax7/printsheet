@@ -25,6 +25,22 @@ function asset(over: Partial<ImageAsset> = {}): ImageAsset {
   };
 }
 
+/** A vector image whose file says it prints at `w` × `h` mm. */
+function vectorAsset(w: number, h: number): ImageAsset {
+  return asset({
+    widthPx: 4000,
+    heightPx: 2000,
+    vector: {
+      type: 'svg',
+      sourceId: 's',
+      blob: new Blob([]),
+      page: 1,
+      crop: { x: 0, y: 0, w: 1, h: 1 },
+      sizeMm: { w, h },
+    },
+  });
+}
+
 function design(over: Partial<Design> = {}): Design {
   return {
     id: 'd1',
@@ -107,6 +123,11 @@ describe('geometry', () => {
     expect(wide.heightMm).toBeCloseTo(193.333, 2);
   });
 
+  it('places a vector at the size written in its file, shrunk to fit the width', () => {
+    expect(initialSize(vectorAsset(80, 40), 580)).toEqual({ widthMm: 80, heightMm: 40 });
+    expect(initialSize(vectorAsset(1160, 580), 580)).toEqual({ widthMm: 580, heightMm: 290 });
+  });
+
   it('measures zero distance for overlapping polygons and the gap otherwise', () => {
     const a = corners(design({ xMm: 50, yMm: 50 }));
     const b = corners(design({ xMm: 153, yMm: 50 }));
@@ -167,6 +188,31 @@ describe('checks', () => {
       assets,
     );
     expect(ok.get('d1')?.map((i) => i.kind)).toContain('ok-dpi');
+  });
+
+  it('never flags the sharpness of a vector, which is drawn afresh at print size', () => {
+    const vectors = new Map(
+      [...assets].map(([id, a]) => [
+        id,
+        {
+          ...a,
+          vector: {
+            type: 'svg' as const,
+            sourceId: 's',
+            blob: new Blob([]),
+            page: 1,
+            crop: { x: 0, y: 0, w: 1, h: 1 },
+            sizeMm: { w: 10, h: 10 },
+          },
+        },
+      ]),
+    );
+    const big = findIssues(
+      sheet([design({ widthMm: 600, heightMm: 300, xMm: 300, yMm: 150 })]),
+      vectors,
+    );
+    expect(big.get('d1')?.map((i) => i.kind) ?? []).not.toContain('low-dpi');
+    expect(big.get('d1')?.map((i) => i.kind) ?? []).not.toContain('ok-dpi');
   });
 
   it('flags designs past a fixed length', () => {

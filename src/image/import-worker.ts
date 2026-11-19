@@ -12,6 +12,8 @@
  * full-size pixels are already in hand.
  */
 import { clearFaintPixels, hasTransparentPixelsIn, trimBounds } from '@/image/trim';
+import { MAX_IMPORT_AREA, MAX_IMPORT_SIDE } from '@/image/limits';
+import { sha256 } from '@/image/hash';
 import { maskFromRgba, type MaskCells } from '@/model/mask';
 
 export interface ImportRequest {
@@ -35,25 +37,15 @@ export type ImportResponse =
       hasTransparency: boolean;
       hash: string;
       mask: MaskCells;
+      /** Where the trimmed image sat in the decoded one, and the decoded one's size. */
+      box: { x: number; y: number; w: number; h: number };
+      fullWidthPx: number;
+      fullHeightPx: number;
     }
   | { id: number; ok: true; maskOnly: true; mask: MaskCells }
   | { id: number; ok: false; message: string };
 
 type Imported = Omit<Extract<ImportResponse, { ok: true; blob: Blob }>, 'id' | 'ok'>;
-
-/**
- * Largest image accepted. Chromium returns blank pixels past 16384 px on a side; 100 megapixels
- * keeps the decoded copies (about 400 MB each) within what a browser tab can hold.
- */
-export const MAX_IMPORT_SIDE = 16384;
-export const MAX_IMPORT_AREA = 100_000_000;
-
-async function sha256(blob: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
-  return Array.from(new Uint8Array(digest).subarray(0, 12), (b) =>
-    b.toString(16).padStart(2, '0'),
-  ).join('');
-}
 
 async function importOne(file: Blob, name: string): Promise<Imported> {
   let bitmap: ImageBitmap;
@@ -103,6 +95,9 @@ async function importOne(file: Blob, name: string): Promise<Imported> {
       hasTransparency,
       hash: await sha256(blob),
       mask,
+      box,
+      fullWidthPx: width,
+      fullHeightPx: height,
     };
   } finally {
     bitmap.close();

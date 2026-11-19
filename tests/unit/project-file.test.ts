@@ -245,3 +245,81 @@ describe('project file', () => {
     await expect(parseProject(new Blob([magic, length, json]))).rejects.toThrow(/damaged/);
   });
 });
+
+describe('project file with vector designs', () => {
+  const source = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 1"/>'], {
+    type: 'image/svg+xml',
+  });
+  const vectorAsset = (id: string, page: number): ImageAsset => ({
+    ...asset(id, [7, 7, 7]),
+    format: 'pdf',
+    vector: {
+      type: 'pdf',
+      sourceId: 'src-1',
+      blob: source,
+      page,
+      crop: { x: 0.1, y: 0.2, w: 0.5, h: 0.25 },
+      sizeMm: { w: 80, h: 40 },
+    },
+  });
+  const vectors = new Map([
+    ['a1', vectorAsset('a1', 1)],
+    ['a2', vectorAsset('a2', 2)],
+  ]);
+
+  it('keeps each vector and stores a source file shared by two pages only once', async () => {
+    const file = await serializeProject(sheet, vectors);
+    const plain = await serializeProject(sheet, assets);
+    expect(file.size - plain.size).toBeLessThan(source.size + 600);
+    const opened = await parseProject(file);
+    const one = opened.assets.get('a1')?.vector;
+    const two = opened.assets.get('a2')?.vector;
+    expect(one).toMatchObject({
+      type: 'pdf',
+      sourceId: 'src-1',
+      page: 1,
+      sizeMm: { w: 80, h: 40 },
+    });
+    expect(two?.page).toBe(2);
+    expect(one?.crop).toEqual({ x: 0.1, y: 0.2, w: 0.5, h: 0.25 });
+    expect(one?.blob).toBe(two?.blob);
+    expect(await one?.blob.text()).toBe(await source.text());
+  });
+
+  it('writes version 3 only when the sheet uses a vector', async () => {
+    expect(await versionOf(await serializeProject(sheet, vectors))).toBe(3);
+    expect(await versionOf(await serializeProject(sheet, assets))).toBe(1);
+  });
+
+  it('refuses a vector whose source is not in the file', async () => {
+    const file = await withHeader(await serializeProject(sheet, vectors), (h) => {
+      h['sources'] = [];
+    });
+    await expect(parseProject(file)).rejects.toThrow(/damaged/);
+  });
+
+  it('refuses a vector with an impossible crop, page or size', async () => {
+    for (const tamper of [
+      (v: Record<string, unknown>) => (v['crop'] = { x: 0.9, y: 0, w: 0.5, h: 1 }),
+      (v: Record<string, unknown>) => (v['crop'] = { x: 0, y: 0, w: 0, h: 1 }),
+      (v: Record<string, unknown>) => (v['page'] = 0),
+      (v: Record<string, unknown>) => (v['type'] = 'eps'),
+      (v: Record<string, unknown>) => (v['sizeMm'] = { w: Number.NaN, h: 1 }),
+    ]) {
+      const file = await withHeader(await serializeProject(sheet, vectors), (h) => {
+        const list = h['assets'] as Array<Record<string, unknown>>;
+        tamper(list[0]?.['vector'] as Record<string, unknown>);
+      });
+      await expect(parseProject(file)).rejects.toThrow(/damaged/);
+    }
+  });
+
+  it('refuses a source whose bytes overlap an image', async () => {
+    const file = await withHeader(await serializeProject(sheet, vectors), (h) => {
+      const list = h['sources'] as Array<Record<string, unknown>>;
+      const images = h['assets'] as Array<Record<string, unknown>>;
+      if (list[0]) list[0]['offset'] = images[0]?.['offset'];
+    });
+    await expect(parseProject(file)).rejects.toThrow(/damaged/);
+  });
+});

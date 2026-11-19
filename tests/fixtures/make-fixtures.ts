@@ -37,6 +37,36 @@ export const paintF: Paint = (x, y) => {
   return nearEdge ? [30, 60, 220, 96] : [0, 0, 0, 0];
 };
 
+const SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
+
+function write(name: string, text: string): void {
+  writeFileSync(join(OUT, name), new TextEncoder().encode(text));
+}
+
+/** Vector test files: text, so they are written as they would be saved by a design app. */
+function writeSvgFixtures(): void {
+  // A 50 mm page with a 40 mm L inset 5 mm on every side: the border is trimmed away, so the
+  // design is 40 mm. One corner stays empty, so it is not a solid block.
+  write(
+    'corner.svg',
+    `<svg ${SVG_NS} width="50mm" height="50mm" viewBox="0 0 100 100">` +
+      '<rect x="10" y="10" width="80" height="40" fill="#1e3cdc"/>' +
+      '<rect x="10" y="50" width="40" height="40" fill="#1e3cdc"/></svg>',
+  );
+  // No width or height: the shape comes from the viewBox (2:1), not the browser's 300 × 150.
+  write(
+    'wide-viewbox.svg',
+    `<svg ${SVG_NS} viewBox="0 0 200 100"><rect width="200" height="100" fill="#d22"/></svg>`,
+  );
+  write(
+    'live-text.svg',
+    `<svg ${SVG_NS} width="60mm" height="20mm" viewBox="0 0 60 20">` +
+      '<text x="2" y="15" font-size="12" fill="#222">Hello</text></svg>',
+  );
+  write('broken.svg', `<svg ${SVG_NS} width="10mm" height="10mm"><rect width="5"`);
+  write('no-size.svg', `<svg ${SVG_NS}><rect width="5" height="5"/></svg>`);
+}
+
 function main(): void {
   mkdirSync(OUT, { recursive: true });
   writeFileSync(join(OUT, 'f-shape.png'), png(300, 400, paintF));
@@ -95,6 +125,7 @@ function main(): void {
     join(OUT, 'logo.eps'),
     new TextEncoder().encode('%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n'),
   );
+  writeSvgFixtures();
   console.log(`Fixtures written to ${OUT}`);
 }
 

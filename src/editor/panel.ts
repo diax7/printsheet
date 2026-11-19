@@ -21,6 +21,9 @@ import { bindNumber, byId, el, icon, revealInOwnBox, setInputValue } from '@/edi
 import { allPresets, type Prefs } from '@/prefs';
 import type { AppState, Store } from '@/store/store';
 
+/** What a vector design shows where a pixel image shows its DPI. */
+export const VECTOR_TEXT = 'Vector, sharp at any size';
+
 export const ISSUE_TEXT: Record<Issue['kind'], string> = {
   'low-dpi': 'Too blurry at this size (under 150 DPI). Make it smaller or use a bigger image.',
   'ok-dpi': 'Acceptable sharpness (150 to 299 DPI). 300 DPI or more looks best.',
@@ -61,7 +64,9 @@ function renderRow(
     ? el('img', { class: 'thumb', src: preview.thumbUrl, alt: '' })
     : el('span', { class: 'thumb' });
   const flags = el('span', { class: 'design-flags' });
-  if (asset) {
+  if (asset?.vector) {
+    flags.append(el('span', { class: 'dpi dpi-good', text: 'Vector', title: VECTOR_TEXT }));
+  } else if (asset) {
     const level = dpiLevel(effectiveDpi(d, asset));
     flags.append(
       el('span', {

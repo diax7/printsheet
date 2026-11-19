@@ -6,16 +6,16 @@
  * Files this app cannot open get a refusal that says what to do instead. Bytes it does not
  * recognise are left to the browser's image decoder, which also reads BMP, AVIF and ICO.
  */
-export const FILE_FORMATS = ['png', 'jpg', 'webp', 'gif', 'svg', 'pdf', 'ai', 'psd'] as const;
-export type FileFormat = (typeof FILE_FORMATS)[number];
+import { FILE_FORMATS, type FileFormat } from '@/model/types';
+import { afterSvgPrologue } from '@/vector/svg-size';
 
-/** True for one of the formats above (a saved file can hold anything). */
+/** True for one of the known file formats (a saved file can hold anything). */
 export function isFileFormat(value: unknown): value is FileFormat {
   return (FILE_FORMATS as readonly unknown[]).includes(value);
 }
 
-/** How many bytes `detectFormat` needs to see. */
-export const FORMAT_HEAD_BYTES = 1024;
+/** How many bytes `detectFormat` needs: an old Illustrator SVG's prologue comes near 1 KB. */
+export const FORMAT_HEAD_BYTES = 4096;
 
 const EPS_MESSAGE = "EPS files can't be opened here. Save it as SVG or PDF and add it again.";
 const OLD_AI_MESSAGE =
@@ -31,16 +31,9 @@ function ascii(head: Uint8Array, from: number, length: number): string {
   return String.fromCharCode(...head.subarray(from, from + length));
 }
 
-/** True when the text, past a byte order mark, an XML prolog, comments and a doctype, is an SVG. */
+/** True when the text, past whatever may come before the root tag, is an SVG. */
 function isSvg(head: Uint8Array): boolean {
-  const content = new TextDecoder()
-    .decode(head)
-    .replace(/^﻿/, '')
-    .replace(/<\?xml[\s\S]*?\?>/, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<!DOCTYPE[^>]*>/i, '')
-    .trimStart();
-  return /^<svg[\s>/]/i.test(content);
+  return /^<svg[\s>/]/i.test(afterSvgPrologue(new TextDecoder().decode(head)));
 }
 
 /**
@@ -60,9 +53,7 @@ export function detectFormat(
   if (ascii(head, 0, 5) === '%PDF-') return isAiName ? 'ai' : 'pdf';
   if (startsWith(head, 0xc5, 0xd0, 0xd3, 0xc6)) return { refuse: EPS_MESSAGE };
   if (ascii(head, 0, 4) === '%!PS') {
-    return {
-      refuse: isAiName && !ascii(head, 0, 64).includes('EPSF') ? OLD_AI_MESSAGE : EPS_MESSAGE,
-    };
+    return { refuse: isAiName ? OLD_AI_MESSAGE : EPS_MESSAGE };
   }
   if (startsWith(head, 0x1f, 0x8b)) return { refuse: SVGZ_MESSAGE };
   if (isSvg(head)) return 'svg';

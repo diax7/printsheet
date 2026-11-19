@@ -6,8 +6,11 @@
 import ImportWorker from '@/image/import-worker?worker&inline';
 import type { ImportRequest, ImportResponse } from '@/image/import-worker';
 import { withSum, type ShapeMask } from '@/model/mask';
-import type { ImageAsset } from '@/model/types';
-import { detectFormat, FORMAT_HEAD_BYTES, type FileFormat } from '@/image/format';
+import type { FileFormat, ImageAsset } from '@/model/types';
+import { detectFormat, FORMAT_HEAD_BYTES } from '@/image/format';
+import { sha256 } from '@/image/hash';
+import { svgSize } from '@/vector/svg-size';
+import { BlankRenderError, baseRenderSize, renderSvg, svgWarnings } from '@/vector/svg';
 
 let worker: Worker | null = null;
 let nextId = 1;
@@ -78,46 +81,139 @@ export interface ImportResult {
   /** Ink masks of the imported images, by asset id. */
   masks: Map<string, ShapeMask>;
   errors: string[];
+  /** Vector files that may not print as designed: live text, or images linked by path. */
+  warnings: { liveText: string[]; linkedImages: string[] };
+}
+
+type Imported = { asset: ImageAsset; mask: ShapeMask } | { error: string };
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** A PNG of a canvas, then the canvas freed: a base render can be 16 megapixels. */
+async function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
+  const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  canvas.width = 0;
+  canvas.height = 0;
+  if (!png) throw new Error('This browser could not keep the drawn image.');
+  return png;
+}
+
+/** A PNG, JPG, WebP or other image the browser decodes: trimmed and masked in the worker. */
+async function importRaster(
+  blob: Blob,
+  name: string,
+  format: FileFormat | 'unknown',
+): Promise<Imported> {
+  const response = await process(blob, name);
+  if (!response.ok) return { error: response.message };
+  if ('maskOnly' in response) return { error: 'The image reader answered the wrong question.' };
+  return {
+    mask: withSum(response.mask),
+    asset: {
+      id: `img-${response.hash}`,
+      name: nameFromFile(name),
+      blob: response.blob,
+      widthPx: response.widthPx,
+      heightPx: response.heightPx,
+      hasTransparency: response.hasTransparency,
+      ...badge(format),
+    },
+  };
+}
+
+/**
+ * An SVG: drawn once at a base size so the worker can trim and mask it like any image, with the
+ * original kept for drawing afresh at print size. The trimmed border is kept as a crop of the
+ * page, so every later drawing is of the inked area only.
+ */
+async function importSvg(blob: Blob, name: string): Promise<Imported> {
+  const text = await blob.text();
+  const size = svgSize(text);
+  if (!size) {
+    return {
+      error: `"${name}" has no size. Give the SVG a width and height or a viewBox and add it again.`,
+    };
+  }
+  const base = baseRenderSize(size.widthMm, size.heightMm);
+  let png: Blob;
+  try {
+    png = await canvasToPng(await renderSvg(text, size.viewBox, base.widthPx, base.heightPx, name));
+  } catch (error) {
+    if (error instanceof BlankRenderError)
+      return { error: `"${name}" is fully transparent, so there is nothing to print.` };
+    return { error: messageOf(error) };
+  }
+  const response = await process(png, name);
+  if (!response.ok) return { error: response.message };
+  if ('maskOnly' in response) return { error: 'The image reader answered the wrong question.' };
+  const sourceId = await sha256(blob);
+  const { box, fullWidthPx, fullHeightPx } = response;
+  const crop = {
+    x: box.x / fullWidthPx,
+    y: box.y / fullHeightPx,
+    w: box.w / fullWidthPx,
+    h: box.h / fullHeightPx,
+  };
+  return {
+    mask: withSum(response.mask),
+    asset: {
+      id: `vec-${sourceId}-p1`,
+      name: nameFromFile(name),
+      blob: response.blob,
+      widthPx: response.widthPx,
+      heightPx: response.heightPx,
+      hasTransparency: response.hasTransparency,
+      format: 'svg',
+      vector: {
+        type: 'svg',
+        sourceId,
+        blob: new Blob([blob], { type: 'image/svg+xml' }),
+        page: 1,
+        crop,
+        sizeMm: { w: size.widthMm * crop.w, h: size.heightMm * crop.h },
+      },
+    },
+  };
 }
 
 /**
  * Import files in order. Identical images (same trimmed pixels) share one asset id, so the PDF
- * embeds them once.
+ * embeds them once; so do identical vector files.
  */
 export async function importFiles(
   files: ReadonlyArray<{ blob: Blob; name: string }>,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportResult> {
-  const assets: ImageAsset[] = [];
-  const masks = new Map<string, ShapeMask>();
-  const errors: string[] = [];
+  const result: ImportResult = {
+    assets: [],
+    masks: new Map(),
+    errors: [],
+    warnings: { liveText: [], linkedImages: [] },
+  };
   let done = 0;
   for (const { blob, name } of files) {
     const format = detectFormat(
       new Uint8Array(await blob.slice(0, FORMAT_HEAD_BYTES).arrayBuffer()),
       name,
     );
-    if (typeof format === 'object') {
-      errors.push(`"${name}": ${format.refuse}`);
-      onProgress?.(++done, files.length);
-      continue;
-    }
-    const response = await process(blob, name);
-    if (response.ok && !('maskOnly' in response)) {
-      masks.set(`img-${response.hash}`, withSum(response.mask));
-      assets.push({
-        id: `img-${response.hash}`,
-        name: nameFromFile(name),
-        blob: response.blob,
-        widthPx: response.widthPx,
-        heightPx: response.heightPx,
-        hasTransparency: response.hasTransparency,
-        ...badge(format),
-      });
-    } else if (!response.ok) {
-      errors.push(response.message);
+    let imported: Imported;
+    if (typeof format === 'object') imported = { error: `"${name}": ${format.refuse}` };
+    else if (format === 'svg') imported = await importSvg(blob, name);
+    else imported = await importRaster(blob, name, format);
+    if ('error' in imported) {
+      result.errors.push(imported.error);
+    } else {
+      result.assets.push(imported.asset);
+      result.masks.set(imported.asset.id, imported.mask);
+      if (format === 'svg') {
+        const found = svgWarnings(await blob.text());
+        if (found.liveText) result.warnings.liveText.push(imported.asset.name);
+        if (found.linkedImages) result.warnings.linkedImages.push(imported.asset.name);
+      }
     }
     onProgress?.(++done, files.length);
   }
-  return { assets, masks, errors };
+  return result;
 }

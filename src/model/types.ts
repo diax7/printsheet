@@ -1,7 +1,10 @@
 /**
  * The sheet model. Every length is in millimetres; the screen is only a view of this.
  */
-import type { FileFormat } from '@/image/format';
+
+/** The kinds of file a design can come from, for its badge. */
+export const FILE_FORMATS = ['png', 'jpg', 'webp', 'gif', 'svg', 'pdf', 'ai', 'psd'] as const;
+export type FileFormat = (typeof FILE_FORMATS)[number];
 
 /**
  * An uploaded image after trimming. `blob` is the full-resolution trimmed PNG (8-bit sRGB, every
@@ -18,6 +21,33 @@ export interface ImageAsset {
   hasTransparency: boolean;
   /** The kind of file it came from, for its badge; absent on images added before badges. */
   format?: FileFormat;
+  /** For a vector design: the original file, drawn afresh at print size for every export. */
+  vector?: VectorSource;
+}
+
+/** A region as fractions (0 to 1) of a whole page. */
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The original of a vector design. `blob` is shared by every design cut from the same file (one
+ * per PDF page), and saved files store it once under `sourceId`.
+ */
+export interface VectorSource {
+  type: 'svg' | 'pdf';
+  /** Hash of the original file's bytes. */
+  sourceId: string;
+  blob: Blob;
+  /** 1-based page (1 for an SVG). */
+  page: number;
+  /** The artwork's inked area on its page, so the border trimmed at import stays trimmed. */
+  crop: Crop;
+  /** The print size of that area, from the file's own units. */
+  sizeMm: { w: number; h: number };
 }
 
 /**

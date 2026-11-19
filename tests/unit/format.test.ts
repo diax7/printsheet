@@ -41,6 +41,17 @@ describe('detectFormat', () => {
     ).toBe('svg');
   });
 
+  it('finds SVG behind the entity block old Illustrator versions write in the doctype', () => {
+    const legacy =
+      '<?xml version="1.0" encoding="utf-8"?>\n<!-- Generator: Adobe Illustrator 16.0.0 -->\n' +
+      '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [\n' +
+      '\t<!ENTITY ns_extend "http://ns.adobe.com/Extensibility/1.0/">\n' +
+      '\t<!ENTITY ns_ai "http://ns.adobe.com/AdobeIllustrator/10.0/">\n'.repeat(12) +
+      ']>\n<svg version="1.1" id="Layer_1">';
+    expect(legacy.length).toBeGreaterThan(1024);
+    expect(detectFormat(text(legacy), 'logo.svg')).toBe('svg');
+  });
+
   it('reads a Photoshop file', () => {
     expect(detectFormat(PSD, 'layers.psd')).toBe('psd');
   });
@@ -53,6 +64,12 @@ describe('detectFormat', () => {
 
   it('refuses an Illustrator file saved as PostScript', () => {
     expect(detectFormat(text('%!PS-Adobe-3.0\n%%Creator: Adobe Illustrator'), 'old.ai')).toEqual({
+      refuse: expect.stringContaining('Create PDF Compatible File'),
+    });
+  });
+
+  it('gives an .ai file the Illustrator advice even when it is saved as EPS inside', () => {
+    expect(detectFormat(text('%!PS-Adobe-3.0 EPSF-3.0\n'), 'logo.ai')).toEqual({
       refuse: expect.stringContaining('Create PDF Compatible File'),
     });
   });

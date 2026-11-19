@@ -84,11 +84,12 @@ export function dpiLevel(dpi: number): DpiLevel {
 
 /** A new image's size: its 300 DPI size, scaled down to fit the sheet width when wider. */
 export function initialSize(
-  asset: Pick<ImageAsset, 'widthPx' | 'heightPx'>,
+  asset: Pick<ImageAsset, 'widthPx' | 'heightPx' | 'vector'>,
   sheetWidthMm: number,
 ): { widthMm: number; heightMm: number } {
-  const widthMm = pxToMm(asset.widthPx, PLACEMENT_DPI);
-  const heightMm = pxToMm(asset.heightPx, PLACEMENT_DPI);
+  // A vector carries its own print size; a pixel image is placed at 300 DPI.
+  const widthMm = asset.vector?.sizeMm.w ?? pxToMm(asset.widthPx, PLACEMENT_DPI);
+  const heightMm = asset.vector?.sizeMm.h ?? pxToMm(asset.heightPx, PLACEMENT_DPI);
   if (widthMm <= sheetWidthMm) return { widthMm, heightMm };
   const scale = sheetWidthMm / widthMm;
   return { widthMm: sheetWidthMm, heightMm: heightMm * scale };

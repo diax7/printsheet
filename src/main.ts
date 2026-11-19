@@ -224,6 +224,25 @@ async function withPreviews(assets: ImageAsset[]): Promise<ImageAsset[]> {
   return assets.filter((_, i) => results[i]?.status === 'fulfilled');
 }
 
+/** The start of a warning about some files: one by name, several by count. */
+function filesHave(names: readonly string[]): string {
+  return names.length === 1 ? `"${names[0]}" has` : `${names.length} vector files have`;
+}
+
+/** One toast per kind of vector risk, naming the files, for everything added together. */
+function toastVectorWarnings(warnings: { liveText: string[]; linkedImages: string[] }): void {
+  if (warnings.liveText.length)
+    toast(
+      `${filesHave(warnings.liveText)} live text: fonts may look different. Convert text to outlines for an exact print.`,
+      'error',
+    );
+  if (warnings.linkedImages.length)
+    toast(
+      `${filesHave(warnings.linkedImages)} linked images that are not inside the file; they are left out.`,
+      'error',
+    );
+}
+
 async function addFiles(files: ReadonlyArray<{ blob: Blob; name: string }>): Promise<void> {
   if (files.length === 0) return;
   // Wait for the saved sheet to be restored, so new images are not replaced by it.
@@ -231,7 +250,7 @@ async function addFiles(files: ReadonlyArray<{ blob: Blob; name: string }>): Pro
   busy.hidden = false;
   busy.textContent = `Reading ${files.length} image${files.length === 1 ? '' : 's'}…`;
   try {
-    const { assets, masks, errors } = await importFiles(files, (done, total) => {
+    const { assets, masks, errors, warnings } = await importFiles(files, (done, total) => {
       busy.textContent = `Reading images ${done} of ${total}…`;
     });
     for (const message of errors) toast(message, 'error');
@@ -249,6 +268,7 @@ async function addFiles(files: ReadonlyArray<{ blob: Blob; name: string }>): Pro
     store.addMasks(new Map([...masks].filter(([id]) => usable.some((a) => a.id === id))));
     const { sheet, ids } = placeNewDesigns(store.get().sheet, usable);
     store.commit(sheet, { selection: ids });
+    toastVectorWarnings(warnings);
     const opaque = usable.filter((a) => !a.hasTransparency).length;
     if (opaque)
       toast(
