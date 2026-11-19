@@ -22,7 +22,8 @@ import { mountInspector } from '@/editor/inspector';
 import { deleteUnlocked, duplicateSelected, newId } from '@/editor/actions';
 import { openExportDialog } from '@/editor/export-dialog';
 import { byId, confirmDialog, el, hydrateIcons, isTyping, toast } from '@/editor/dom';
-import { importFiles } from '@/image/import';
+import { importFiles, type ImportResult } from '@/image/import';
+import { pickItems } from '@/editor/pick-dialog';
 import { createMaskLoader } from '@/image/masks';
 import { mountArrange } from '@/editor/arrange-run';
 import { evictPreviews, loadPreview } from '@/image/previews';
@@ -230,7 +231,12 @@ function filesHave(names: readonly string[]): string {
 }
 
 /** One toast per kind of vector risk, naming the files, for everything added together. */
-function toastVectorWarnings(warnings: { liveText: string[]; linkedImages: string[] }): void {
+function toastVectorWarnings(warnings: ImportResult['warnings']): void {
+  if (warnings.missingFonts.length)
+    toast(
+      `${filesHave(warnings.missingFonts)} fonts that are not inside the file: other fonts stand in. Embed the fonts or convert text to outlines for an exact print.`,
+      'error',
+    );
   if (warnings.liveText.length)
     toast(
       `${filesHave(warnings.liveText)} live text: fonts may look different. Convert text to outlines for an exact print.`,
@@ -250,9 +256,16 @@ async function addFiles(files: ReadonlyArray<{ blob: Blob; name: string }>): Pro
   busy.hidden = false;
   busy.textContent = `Reading ${files.length} image${files.length === 1 ? '' : 's'}…`;
   try {
-    const { assets, masks, errors, warnings } = await importFiles(files, (done, total) => {
-      busy.textContent = `Reading images ${done} of ${total}…`;
-    });
+    const { assets, masks, errors, warnings } = await importFiles(
+      files,
+      (done, total) => {
+        busy.textContent = `Reading images ${done} of ${total}…`;
+      },
+      {
+        pick: (title, lead, items) =>
+          pickItems(title, lead, items, roomForDesigns(store.get().sheet)),
+      },
+    );
     for (const message of errors) toast(message, 'error');
     const room = roomForDesigns(store.get().sheet);
     const extra = assets.length - room;

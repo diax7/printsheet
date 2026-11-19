@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { encode } from 'fast-png';
 import jpeg from 'jpeg-js';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
 const OUT = join(process.cwd(), 'tests', 'fixtures', 'out');
 
@@ -67,7 +68,57 @@ function writeSvgFixtures(): void {
   write('no-size.svg', `<svg ${SVG_NS}><rect width="5" height="5"/></svg>`);
 }
 
-function main(): void {
+const PT_PER_MM = 72 / 25.4;
+
+/**
+ * A page of `widthMm` × `heightMm` with nothing painted but an L of blue shapes inset by
+ * `insetMm`, so its empty border is trimmed and a corner stays transparent.
+ */
+function drawCorner(doc: PDFDocument, widthMm: number, heightMm: number, insetMm: number): void {
+  const page = doc.addPage([widthMm * PT_PER_MM, heightMm * PT_PER_MM]);
+  const inset = insetMm * PT_PER_MM;
+  const w = page.getWidth() - 2 * inset;
+  const h = page.getHeight() - 2 * inset;
+  const blue = rgb(0.12, 0.24, 0.86);
+  page.drawRectangle({ x: inset, y: inset + h / 2, width: w, height: h / 2, color: blue });
+  page.drawRectangle({ x: inset, y: inset, width: w / 2, height: h / 2, color: blue });
+}
+
+/** PDF and Illustrator test files, made with pdf-lib: real PDFs, with transparent pages. */
+async function writePdfFixtures(): Promise<void> {
+  const one = await PDFDocument.create();
+  // A 100 × 60 mm page with a 10 mm empty border: the design is 80 × 40 mm.
+  drawCorner(one, 100, 60, 10);
+  const oneBytes = await one.save();
+  writeFileSync(join(OUT, 'corner.pdf'), oneBytes);
+  // A PDF-compatible Illustrator file is a PDF inside.
+  writeFileSync(join(OUT, 'corner.ai'), oneBytes);
+
+  const three = await PDFDocument.create();
+  for (const size of [40, 50, 60]) drawCorner(three, size, size, 5);
+  writeFileSync(join(OUT, 'pages.pdf'), await three.save());
+
+  // What Illustrator writes when PDF content is not saved: one page with this sentence.
+  const placeholder = await PDFDocument.create();
+  const font = await placeholder.embedFont(StandardFonts.Helvetica);
+  placeholder
+    .addPage([300, 100])
+    .drawText('This is an Adobe Illustrator File that was saved without PDF Content.', {
+      x: 5,
+      y: 50,
+      size: 7,
+      font,
+    });
+  writeFileSync(join(OUT, 'placeholder.ai'), await placeholder.save());
+
+  // Text in a font the file does not carry (Helvetica is never embedded by pdf-lib).
+  const text = await PDFDocument.create();
+  const helvetica = await text.embedFont(StandardFonts.Helvetica);
+  text.addPage([200, 60]).drawText('Hello', { x: 10, y: 20, size: 30, font: helvetica });
+  writeFileSync(join(OUT, 'text.pdf'), await text.save());
+}
+
+async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   writeFileSync(join(OUT, 'f-shape.png'), png(300, 400, paintF));
   // A 600×300 logo inside a 1000×700 canvas: a 200 px empty border to trim.
@@ -126,7 +177,8 @@ function main(): void {
     new TextEncoder().encode('%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n'),
   );
   writeSvgFixtures();
+  await writePdfFixtures();
   console.log(`Fixtures written to ${OUT}`);
 }
 
-main();
+await main();
