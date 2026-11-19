@@ -1,8 +1,9 @@
 /**
- * "Choose what to add" for a file that holds several designs (the pages of a PDF): a list with a
- * preview, a size and a tick for each, and an Add button that counts what is ticked. Closing it
- * any way (Cancel, Escape) adds nothing. Previews load a few at a time, so a long file opens at
- * once.
+ * "Choose what to add" for a file that holds several designs (the pages of a PDF, the layers of
+ * a PSD): a list with a preview, a size and a tick for each, and an Add button that counts what
+ * is ticked. A folder's row adds it merged, and opens to show its layers to tick one by one.
+ * Closing the dialog any way (Cancel, Escape) adds nothing. Previews load a few at a time, and a
+ * folder's only when it is opened, so even a large file opens at once.
  */
 import { byId, el } from '@/editor/dom';
 import type { PickItem } from '@/image/import';
@@ -10,55 +11,98 @@ import type { PickItem } from '@/image/import';
 /** How many previews are drawn at the same time. */
 const THUMBS_AT_ONCE = 3;
 
-function pickRow(
-  item: PickItem,
-  onChange: () => void,
-): { row: HTMLElement; box: HTMLInputElement; img: HTMLImageElement } {
-  const box = el('input', { type: 'checkbox', checked: item.checked, 'aria-label': item.label });
-  box.addEventListener('change', onChange);
-  const img = el('img', { class: 'pick-thumb', alt: '' });
-  const row = el(
-    'label',
-    { class: 'pick-row' },
-    box,
-    img,
-    el(
-      'span',
-      { class: 'pick-text' },
-      el('span', { class: 'pick-label', text: item.label }),
-      el('span', { class: 'pick-detail', text: item.detail }),
-      item.note ? el('span', { class: 'pick-note', text: item.note }) : null,
-    ),
-  );
-  return { row, box, img };
+interface Row {
+  item: PickItem;
+  box: HTMLInputElement;
+  img: HTMLImageElement;
 }
 
-/** Draw the previews in order, a few at a time, while the dialog is open. */
-function loadThumbs(
-  items: readonly PickItem[],
-  imgs: readonly HTMLImageElement[],
-  isOpen: () => boolean,
-): void {
-  let next = 0;
+/** Previews drawn in the order asked for, a few at a time, while `isOpen()`. */
+function thumbQueue(isOpen: () => boolean): (rows: readonly Row[]) => void {
+  const queue: Row[] = [];
+  let running = 0;
   const work = async (): Promise<void> => {
-    while (next < items.length && isOpen()) {
-      const i = next++;
-      const thumb = items[i]?.thumb;
-      const img = imgs[i];
-      if (!thumb || !img) continue;
+    running++;
+    for (let row = queue.shift(); row && isOpen(); row = queue.shift()) {
+      if (!row.item.thumb) continue;
       try {
-        img.src = await thumb();
+        row.img.src = await row.item.thumb();
       } catch {
-        img.classList.add('pick-thumb-failed');
+        row.img.classList.add('pick-thumb-failed');
       }
     }
+    running--;
   };
-  for (let i = 0; i < THUMBS_AT_ONCE; i++) void work();
+  return (rows) => {
+    queue.push(...rows);
+    for (let i = running; i < THUMBS_AT_ONCE; i++) void work();
+  };
+}
+
+/** The row for one item, and (for a folder) its layers' rows, hidden until opened. */
+function rowsFor(
+  item: PickItem,
+  onChange: () => void,
+  onOpen: (rows: Row[]) => void,
+): { element: HTMLElement; rows: Row[] } {
+  const box = el('input', {
+    type: 'checkbox',
+    checked: item.checked && !item.disabled,
+    disabled: Boolean(item.disabled),
+    'aria-label': item.label,
+  });
+  box.addEventListener('change', onChange);
+  const img = el('img', { class: 'pick-thumb', alt: '' });
+  const own: Row = { item, box, img };
+  const text = el(
+    'span',
+    { class: 'pick-text' },
+    el('span', { class: 'pick-label', text: item.label }),
+    el('span', { class: 'pick-detail', text: item.detail }),
+    item.note ? el('span', { class: 'pick-note', text: item.note }) : null,
+  );
+  const row = el(
+    'label',
+    { class: `pick-row${item.disabled ? ' pick-disabled' : ''}` },
+    box,
+    img,
+    text,
+  );
+  if (!item.children?.length) return { element: row, rows: [own] };
+
+  const inner = item.children.map((child) => rowsFor(child, onChange, onOpen));
+  const nested = el(
+    'div',
+    { class: 'pick-children', hidden: true },
+    ...inner.map((r) => r.element),
+  );
+  const toggle = el('button', {
+    type: 'button',
+    class: 'btn btn-outline pick-open',
+    'aria-expanded': 'false',
+    text: `Show ${item.children.length} layer${item.children.length === 1 ? '' : 's'}`,
+  });
+  let opened = false;
+  toggle.addEventListener('click', () => {
+    nested.hidden = !nested.hidden;
+    toggle.setAttribute('aria-expanded', String(!nested.hidden));
+    toggle.textContent = nested.hidden
+      ? `Show ${item.children?.length ?? 0} layers`
+      : 'Hide layers';
+    if (!opened) onOpen(inner.map((r) => r.rows[0] as Row));
+    opened = true;
+  });
+  text.append(toggle);
+  return {
+    element: el('div', { class: 'pick-group' }, row, nested),
+    rows: [own, ...inner.flatMap((r) => r.rows)],
+  };
 }
 
 /**
- * Ask which items to add. Resolves with the ticked ids, or null when the dialog was closed
- * without adding. At most `room` can be added (the room left on the sheet).
+ * Ask which items to add. Resolves with the ticked ids (a folder's ticked layers included), or
+ * null when the dialog was closed without adding. At most `room` can be added (the room left on
+ * the sheet).
  */
 export function pickItems(
   title: string,
@@ -70,9 +114,10 @@ export function pickItems(
   const add = el('button', { class: 'btn btn-primary', type: 'submit', id: 'pick-add' });
   const cancel = el('button', { class: 'btn btn-outline', type: 'button', text: 'Cancel' });
   const over = el('p', { class: 'pick-over', role: 'status' });
-  const rows = items.map((item) => pickRow(item, () => count()));
-  const ticked = (): string[] =>
-    items.filter((_, i) => rows[i]?.box.checked).map((item) => item.id);
+  const loadThumbs = thumbQueue(() => dialog.open);
+  const groups = items.map((item) => rowsFor(item, () => count(), loadThumbs));
+  const rows = groups.flatMap((g) => g.rows);
+  const ticked = (): string[] => rows.filter((r) => r.box.checked).map((r) => r.item.id);
   const count = (): void => {
     const n = ticked().length;
     add.textContent = n === 1 ? 'Add 1 design' : `Add ${n} designs`;
@@ -88,7 +133,7 @@ export function pickItems(
       { class: 'dialog-body' },
       el('h2', { id: 'pick-title', text: title }),
       el('p', { class: 'lead', text: lead }),
-      el('div', { class: 'pick-list' }, ...rows.map((r) => r.row)),
+      el('div', { class: 'pick-list' }, ...groups.map((g) => g.element)),
       over,
     ),
     el('div', { class: 'dialog-actions' }, cancel, add),
@@ -105,11 +150,8 @@ export function pickItems(
     cancel.addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => resolve(chosen), { once: true });
     dialog.showModal();
-    loadThumbs(
-      items,
-      rows.map((r) => r.img),
-      () => dialog.open,
-    );
+    // Top-level rows first; a folder's layers when it is opened.
+    loadThumbs(groups.map((g) => g.rows[0] as Row));
     add.focus();
   });
 }

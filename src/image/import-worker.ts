@@ -15,6 +15,15 @@ import { clearFaintPixels, hasTransparentPixelsIn, trimBounds } from '@/image/tr
 import { MAX_IMPORT_AREA, MAX_IMPORT_SIDE } from '@/image/limits';
 import { sha256 } from '@/image/hash';
 import { maskFromRgba, type MaskCells } from '@/model/mask';
+import {
+  openPsd,
+  psdClose,
+  psdTake,
+  psdThumb,
+  type PsdOpened,
+  type PsdRequest,
+  type PsdThumb,
+} from '@/image/psd-worker';
 
 export interface ImportRequest {
   id: number;
@@ -125,8 +134,44 @@ async function maskOne(file: Blob, name: string): Promise<MaskCells> {
   }
 }
 
-self.addEventListener('message', (event: MessageEvent<ImportRequest>) => {
-  const { id, file, name, kind } = event.data;
+/** A Photoshop request: open, preview, take one row (imported like any image) or close. */
+function handlePsd(request: PsdRequest): void {
+  const { id } = request;
+  const fail = (error: unknown): void =>
+    self.postMessage({
+      id,
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  if (request.kind === 'psd-open') {
+    openPsd(request.file, request.name).then(
+      (opened) => self.postMessage({ id, ok: true, ...opened } satisfies PsdOpened),
+      fail,
+    );
+  } else if (request.kind === 'psd-thumb') {
+    psdThumb(request.token, request.node).then(
+      (url) => self.postMessage({ id, ok: true, url } satisfies PsdThumb),
+      fail,
+    );
+  } else if (request.kind === 'psd-take') {
+    psdTake(request.token, request.node, request.name)
+      .then((png) => importOne(png, request.name))
+      .then(
+        (result) => self.postMessage({ id, ok: true, ...result } satisfies ImportResponse),
+        fail,
+      );
+  } else {
+    psdClose(request.token);
+    self.postMessage({ id, ok: true, url: null } satisfies PsdThumb);
+  }
+}
+
+self.addEventListener('message', (event: MessageEvent<ImportRequest | PsdRequest>) => {
+  if (event.data.kind?.startsWith('psd-')) {
+    handlePsd(event.data as PsdRequest);
+    return;
+  }
+  const { id, file, name, kind } = event.data as ImportRequest;
   const fail = (error: unknown): void =>
     self.postMessage({
       id,

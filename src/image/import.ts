@@ -5,6 +5,8 @@
 // oxlint-disable-next-line import/default -- Vite's ?worker import is a virtual module with a default export.
 import ImportWorker from '@/image/import-worker?worker&inline';
 import type { ImportRequest, ImportResponse } from '@/image/import-worker';
+import type { PsdOpened, PsdRequest } from '@/image/psd-worker';
+import { MAX_PSD_BYTES, type PsdNode } from '@/image/psd';
 import { withSum, type ShapeMask } from '@/model/mask';
 import type { FileFormat, ImageAsset, VectorSource } from '@/model/types';
 import { formatCm } from '@/model/units';
@@ -16,15 +18,20 @@ import { BlankRenderError, baseRenderSize, renderSvg, svgWarnings } from '@/vect
 
 let worker: Worker | null = null;
 let nextId = 1;
-const pending = new Map<number, (response: ImportResponse) => void>();
+/** Every answer carries its request's id; a failure has `ok: false` and a message. */
+type Failure = { id: number; ok: false; message: string };
+const pending = new Map<number, (response: { id: number } & ({ ok: true } | Failure)) => void>();
 
 function getWorker(): Worker {
   if (worker) return worker;
   const created = new ImportWorker();
-  created.addEventListener('message', (event: MessageEvent<ImportResponse>) => {
-    pending.get(event.data.id)?.(event.data);
-    pending.delete(event.data.id);
-  });
+  created.addEventListener(
+    'message',
+    (event: MessageEvent<{ id: number } & ({ ok: true } | Failure)>) => {
+      pending.get(event.data.id)?.(event.data);
+      pending.delete(event.data.id);
+    },
+  );
   const fail = (message: string): void => {
     for (const [id, resolve] of pending) resolve({ id, ok: false, message });
     pending.clear();
@@ -48,8 +55,19 @@ function process(
 ): Promise<ImportResponse> {
   const id = nextId++;
   return new Promise((resolve) => {
-    pending.set(id, resolve);
+    pending.set(id, resolve as (response: unknown) => void);
     getWorker().postMessage({ id, file, name, kind } satisfies ImportRequest);
+  });
+}
+
+type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
+
+/** Ask the worker something about an open Photoshop file. */
+function askPsd<T>(request: WithoutId<PsdRequest>): Promise<T | Failure> {
+  const id = nextId++;
+  return new Promise((resolve) => {
+    pending.set(id, resolve as (response: unknown) => void);
+    getWorker().postMessage({ id, ...request });
   });
 }
 
@@ -71,11 +89,9 @@ export function nameFromFile(fileName: string): string {
   return (withoutExtension.trim() || 'Image').slice(0, 120);
 }
 
-/** The badge field for a decoded image: only formats the browser decodes as pixels get one. */
+/** The badge field for a design; bytes the decoder read without knowing them get none. */
 function badge(format: FileFormat | 'unknown'): Pick<ImageAsset, 'format'> {
-  return format === 'png' || format === 'jpg' || format === 'webp' || format === 'gif'
-    ? { format }
-    : {};
+  return format === 'unknown' ? {} : { format };
 }
 
 export interface ImportResult {
@@ -111,14 +127,22 @@ async function importRaster(
   name: string,
   format: FileFormat | 'unknown',
 ): Promise<Imported> {
-  const response = await process(blob, name);
+  return rasterResult(await process(blob, name), nameFromFile(name), format);
+}
+
+/** A design from the worker's trimmed image, named `designName`. */
+function rasterResult(
+  response: ImportResponse | Failure,
+  designName: string,
+  format: FileFormat | 'unknown',
+): Imported {
   if (!response.ok) return { error: response.message };
   if ('maskOnly' in response) return { error: 'The image reader answered the wrong question.' };
   return {
     mask: withSum(response.mask),
     asset: {
       id: `img-${response.hash}`,
-      name: nameFromFile(name),
+      name: designName,
       blob: response.blob,
       widthPx: response.widthPx,
       heightPx: response.heightPx,
@@ -322,8 +346,12 @@ export interface PickItem {
   /** A note shown under the row, such as what will be left out. */
   note?: string;
   checked: boolean;
+  /** Shown but not tickable (the note says why). */
+  disabled?: boolean;
   /** Draws the row's preview, as an image URL. */
   thumb?: () => Promise<string>;
+  /** Rows inside this one (a folder's layers), shown when it is opened. */
+  children?: PickItem[];
 }
 
 export interface ImportOptions {
@@ -334,7 +362,108 @@ export interface ImportOptions {
   pick?: (title: string, lead: string, items: PickItem[]) => Promise<string[] | null>;
 }
 
-/** The designs one file becomes: one image, one SVG, or the chosen pages of a PDF. */
+/** The picker rows for a PSD's layers and folders, each previewed by the worker when shown. */
+function layerItems(nodes: readonly PsdNode[], token: number): PickItem[] {
+  return nodes.map((node) => ({
+    id: node.id,
+    label: node.label,
+    detail:
+      node.kind !== 'folder'
+        ? `${node.widthPx} × ${node.heightPx} px`
+        : node.disabled
+          ? 'Folder'
+          : `Folder, ${node.widthPx} × ${node.heightPx} px, added as one design`,
+    ...(node.notes.length ? { note: node.notes.join('. ') } : {}),
+    checked: node.checked,
+    ...(node.disabled ? { disabled: true } : { thumb: () => psdThumbUrl(token, node.id) }),
+    ...(node.children?.length ? { children: layerItems(node.children, token) } : {}),
+  }));
+}
+
+async function psdThumbUrl(token: number, node: string): Promise<string> {
+  const answer = await askPsd<{ ok: true; url: string | null }>({ kind: 'psd-thumb', token, node });
+  if (!answer.ok || !answer.url) throw new Error('No preview');
+  return answer.url;
+}
+
+/** The ids ticked by default, folders' layers included: what is added without a picker. */
+function tickedIds(items: readonly PickItem[]): string[] {
+  return items.flatMap((item) => [
+    ...(item.checked && !item.disabled ? [item.id] : []),
+    ...tickedIds(item.children ?? []),
+  ]);
+}
+
+function labelsById(
+  items: readonly PickItem[],
+  into = new Map<string, string>(),
+): Map<string, string> {
+  for (const item of items) {
+    into.set(item.id, item.label);
+    labelsById(item.children ?? [], into);
+  }
+  return into;
+}
+
+/**
+ * A Photoshop file: its layers and folders are listed to choose from, each chosen row is drawn
+ * and imported like any image. A file with one layer and no folders is added without asking.
+ */
+async function importPsd(blob: Blob, name: string, options: ImportOptions): Promise<Imported[]> {
+  if (blob.size > MAX_PSD_BYTES) {
+    return [
+      {
+        error: `"${name}" is too large to open here (over 300 MB). Save a copy with fewer layers, or export the layers you need as PNG.`,
+      },
+    ];
+  }
+  const opened = await askPsd<PsdOpened>({ kind: 'psd-open', file: blob, name });
+  if (!opened.ok) return [{ error: opened.message }];
+  const { token } = opened;
+  try {
+    const items = layerItems(opened.nodes, token);
+    items.push({
+      id: 'whole',
+      label: 'Whole image',
+      detail: opened.whole
+        ? `${opened.whole.widthPx} × ${opened.whole.heightPx} px, as Photoshop saved it, effects included`
+        : 'Not saved in this file',
+      checked: false,
+      ...(opened.whole
+        ? { thumb: () => psdThumbUrl(token, 'whole') }
+        : { disabled: true, note: 'Save with Maximize Compatibility to add the whole image.' }),
+    });
+    const only = opened.nodes.length === 1 && !opened.nodes[0]?.children;
+    let chosen = only ? [opened.nodes[0]?.id ?? ''] : tickedIds(items);
+    if (!only && options.pick) {
+      const picked = await options.pick(
+        `Add from "${nameFromFile(name)}"`,
+        'Each row you tick becomes its own design.',
+        items,
+      );
+      if (!picked) return [];
+      chosen = picked;
+    }
+    const labels = labelsById(items);
+    const results: Imported[] = [];
+    for (const node of chosen) {
+      const label = node === 'whole' ? 'whole image' : (labels.get(node) ?? 'layer');
+      const designName = `${nameFromFile(name)} - ${label}`.slice(0, 120);
+      const response = await askPsd<ImportResponse>({
+        kind: 'psd-take',
+        token,
+        node,
+        name: designName,
+      });
+      results.push(rasterResult(response, designName, 'psd'));
+    }
+    return results;
+  } finally {
+    await askPsd({ kind: 'psd-close', token });
+  }
+}
+
+/** The designs one file becomes: one image, one SVG, the chosen pages of a PDF or the chosen layers of a PSD. */
 async function importOne(
   blob: Blob,
   name: string,
@@ -347,6 +476,7 @@ async function importOne(
   if (typeof format === 'object') return [{ error: `"${name}": ${format.refuse}` }];
   if (format === 'svg') return [await importSvg(blob, name)];
   if (format === 'pdf' || format === 'ai') return importPdf(blob, name, format, options);
+  if (format === 'psd') return importPsd(blob, name, options);
   return [await importRaster(blob, name, format)];
 }
 

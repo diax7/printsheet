@@ -7,8 +7,18 @@ import { join } from 'node:path';
 import { encode } from 'fast-png';
 import jpeg from 'jpeg-js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { initializeCanvas, writePsd, type Layer, type PixelData } from 'ag-psd';
 
 const OUT = join(process.cwd(), 'tests', 'fixtures', 'out');
+
+// Node has no canvas: ag-psd only needs a way to make pixel buffers to write a PSD.
+initializeCanvas(
+  () => {
+    throw new Error('ag-psd asked for a canvas while writing a test file');
+  },
+  (width, height) =>
+    ({ width, height, data: new Uint8ClampedArray(width * height * 4) }) as unknown as ImageData,
+);
 
 type Paint = (x: number, y: number) => [number, number, number, number];
 
@@ -118,6 +128,107 @@ async function writePdfFixtures(): Promise<void> {
   writeFileSync(join(OUT, 'text.pdf'), await text.save());
 }
 
+/** Pixels of one colour, at `alpha`, for a PSD layer. */
+function solid(width: number, height: number, rgba: [number, number, number, number]): PixelData {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < data.length; i += 4) data.set(rgba, i);
+  return { width, height, data };
+}
+
+function psdLayer(
+  name: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  over: Partial<Layer> = {},
+): Layer {
+  return {
+    name,
+    left: x,
+    top: y,
+    right: x + w,
+    bottom: y + h,
+    imageData: solid(w, h, [220, 40, 40, 255]),
+    ...over,
+  };
+}
+
+/**
+ * Photoshop test files, written with ag-psd. layers.psd holds one of each case the import
+ * handles: plain layers, a hidden one, a 50% layer mask, a folder, a layer with another clipped
+ * to it, and the whole image. nocomp.psd has no whole image; cmyk.psd says it is CMYK.
+ */
+function writePsdFixtures(): void {
+  const doc = { width: 200, height: 100 };
+  const layers: Layer[] = [
+    psdLayer('Logo', 10, 10, 40, 30),
+    psdLayer('Text', 100, 10, 50, 20, { imageData: solid(50, 20, [30, 60, 220, 255]) }),
+    psdLayer('Off', 10, 70, 20, 20, { hidden: true }),
+    psdLayer('Faded', 160, 60, 30, 30, {
+      mask: {
+        left: 160,
+        top: 60,
+        right: 190,
+        bottom: 90,
+        defaultColor: 0,
+        imageData: solid(30, 30, [128, 128, 128, 255]),
+      },
+    }),
+    {
+      name: 'Pair',
+      children: [psdLayer('Left', 10, 50, 20, 20), psdLayer('Right', 60, 50, 20, 20)],
+    },
+    psdLayer('Base', 100, 50, 40, 40),
+    psdLayer('Pattern', 90, 40, 60, 60, {
+      clipping: true,
+      imageData: solid(60, 60, [240, 200, 20, 255]),
+    }),
+  ];
+  const composite = solid(doc.width, doc.height, [20, 120, 60, 255]);
+  writeFileSync(
+    join(OUT, 'layers.psd'),
+    new Uint8Array(writePsd({ ...doc, children: layers, imageData: composite })),
+  );
+  // As Photoshop saves without "Maximize Compatibility": a placeholder image, flagged as such.
+  const versionInfo = {
+    hasRealMergedData: false,
+    writerName: 'Adobe Photoshop',
+    readerName: 'Adobe Photoshop 2025',
+    fileVersion: 1,
+  };
+  writeFileSync(
+    join(OUT, 'nocomp.psd'),
+    new Uint8Array(
+      writePsd({ ...doc, children: layers.slice(0, 2), imageResources: { versionInfo } }),
+    ),
+  );
+  // A solid base with a 50% grey layer clipped to it in Multiply (it must darken the base, not
+  // cover it), and a layer that runs off the right edge of the page.
+  writeFileSync(
+    join(OUT, 'blend.psd'),
+    new Uint8Array(
+      writePsd({
+        ...doc,
+        children: [
+          psdLayer('Base', 10, 10, 40, 40, { imageData: solid(40, 40, [200, 100, 50, 255]) }),
+          psdLayer('Shade', 10, 10, 40, 40, {
+            clipping: true,
+            blendMode: 'multiply',
+            imageData: solid(40, 40, [128, 128, 128, 255]),
+          }),
+          psdLayer('Edge', 180, 60, 80, 20),
+        ],
+      }),
+    ),
+  );
+  // The colour mode is the big-endian number at bytes 24 and 25 of the header; 4 is CMYK.
+  const cmyk = new Uint8Array(writePsd({ ...doc, children: layers.slice(0, 1) }));
+  cmyk[24] = 0;
+  cmyk[25] = 4;
+  writeFileSync(join(OUT, 'cmyk.psd'), cmyk);
+}
+
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   writeFileSync(join(OUT, 'f-shape.png'), png(300, 400, paintF));
@@ -178,6 +289,7 @@ async function main(): Promise<void> {
   );
   writeSvgFixtures();
   await writePdfFixtures();
+  writePsdFixtures();
   console.log(`Fixtures written to ${OUT}`);
 }
 
